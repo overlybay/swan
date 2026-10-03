@@ -143,6 +143,9 @@
         byAuthor[s.author_id].push(s);
       });
       let html = '<div class="stories-row">';
+      html += '<a class="story-item" href="compose.html?type=story">' +
+        '<span class="story-ring story-add"><span class="mp-icon">＋</span></span>' +
+        '<span class="story-name">Your story</span></a>';
       let i = 0;
       Object.keys(byAuthor).forEach(function (aid) {
         const author = amap[aid] || { username: "?", avatar_url: null };
@@ -177,7 +180,7 @@
 
       let feedHTML = "";
       if (!posts || !posts.length) {
-        feedHTML = '<div class="empty"><div class="big">🪿</div>Your feed is quiet.<br>Follow people or <a href="compose.html" style="color:#a6262e;font-weight:700">share your first post</a>.</div>';
+        feedHTML = '<div class="empty"><div class="big">🪿</div>Your feed is quiet.<br>Grow your flock or <a href="compose.html" style="color:#a6262e;font-weight:700">share your first post</a>.</div>';
       } else {
         const postIds = posts.map(function (p) { return p.id; });
         const authorIds = [...new Set(posts.map(function (p) { return p.author_id; }))];

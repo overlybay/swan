@@ -69,15 +69,15 @@
           '<div class="profile-id"><h2>' + esc(prof.username) + '</h2><div class="dname">' + esc(prof.display_name || "") + "</div></div>" +
         "</div>" +
         '<div class="counts"><div><b>' + posts.length + "</b><span>posts</span></div>" +
-        "<div><b>" + followers + "</b><span>followers</span></div>" +
-        "<div><b>" + following + "</b><span>following</span></div></div>" +
+        "<div><b>" + (followers + following) + "</b><span>flock</span></div></div>" +
         (prof.bio ? '<div class="bio">' + esc(prof.bio) + "</div>" : "") +
         '<div class="profile-actions">';
       if (isSelf) {
+        html += '<a class="btn btn-outline" href="settings.html">Edit profile</a>';
         html += '<a class="btn btn-outline" href="compose.html">＋ New post</a>';
         html += '<button class="btn btn-sm" id="newSlideBtn" style="flex:0 0 auto">＋ New slide</button>';
       } else {
-        html += '<button class="btn ' + (following2 ? "btn-outline" : "") + '" id="followBtn">' + (following2 ? "Following" : "Follow") + "</button>";
+        html += '<button class="btn ' + (following2 ? "btn-outline" : "") + '" id="followBtn">' + (following2 ? "✓ Flock" : "＋ Flock") + "</button>";
         html += '<button class="btn btn-outline" id="msgBtn">Message</button>';
       }
       html += "</div></div>";
@@ -125,7 +125,7 @@
             await sb.from("follows").insert({ follower_id: me.id, following_id: prof.id });
           }
           render();
-        } catch (e) { alert("Could not update follow: " + (e.message || e)); fb.disabled = false; }
+        } catch (e) { alert("Could not update flock: " + (e.message || e)); fb.disabled = false; }
       });
       const mb = document.getElementById("msgBtn");
       if (mb) mb.addEventListener("click", async function () {

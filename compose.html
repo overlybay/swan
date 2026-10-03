@@ -127,11 +127,35 @@
   /* ---------- Audius search ---------- */
   const aresults = document.getElementById("aresults");
   const asel = document.getElementById("asel");
+  function fmtT(s) { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
   function renderAudiusSel() {
-    if (music && music.source === "audius") {
-      asel.innerHTML = '<div class="track-row selected"><div class="grow"><div class="tt">' + esc(music.title) + '</div><div class="ta">' + esc(music.artist) + ' · Audius</div></div><button class="mini-btn" id="aclear">Remove</button></div>';
-      document.getElementById("aclear").onclick = function () { music = null; renderAudiusSel(); };
-    } else { asel.innerHTML = ""; }
+    if (!(music && music.source === "audius")) { asel.innerHTML = ""; return; }
+    let html = '<div class="track-row selected"><div class="grow"><div class="tt">' + esc(music.title) + '</div><div class="ta">' + esc(music.artist) + ' · Audius</div></div><button class="mini-btn" id="aclear">Remove</button></div>';
+    if (music.trackDur && music.trackDur > 5) {
+      const durs = [[15, "15s"], [30, "30s"], [60, "60s"], [null, "Full"]];
+      html += '<div class="snip"><div class="snip-lab"><span>Snippet starts at <b id="snStartLbl">' + fmtT(music.start || 0) + '</b></span><span>' + fmtT(music.trackDur) + ' total</span></div>' +
+        '<input type="range" id="snStart" min="0" max="' + Math.floor(music.trackDur) + '" value="' + Math.floor(music.start || 0) + '">' +
+        '<div class="seg" id="snDur">' +
+        durs.map(function (d) {
+          const on = (music.dur || null) === d[0] ? " active" : "";
+          return '<button data-d="' + (d[0] === null ? "" : d[0]) + '" class="' + on + '">' + d[1] + "</button>";
+        }).join("") + "</div></div>";
+    }
+    asel.innerHTML = html;
+    document.getElementById("aclear").onclick = function () { music = null; renderAudiusSel(); };
+    const rng = document.getElementById("snStart");
+    if (rng) rng.addEventListener("input", function () {
+      music.start = parseFloat(rng.value) || 0;
+      document.getElementById("snStartLbl").textContent = fmtT(music.start);
+    });
+    const seg = document.getElementById("snDur");
+    if (seg) seg.querySelectorAll("button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        music.dur = b.dataset.d ? parseFloat(b.dataset.d) : null;
+        seg.querySelectorAll("button").forEach(function (x) { x.classList.remove("active"); });
+        b.classList.add("active");
+      });
+    });
   }
   async function audiusSearch() {
     const q = document.getElementById("aq").value.trim();
@@ -161,7 +185,10 @@
             id: String(t.id),
             title: t.title || "Untitled",
             artist: artist,
-            stream: AUDIUS_HOST + "/v1/tracks/" + t.id + "/stream?app_name=" + encodeURIComponent(APP_NAME)
+            stream: AUDIUS_HOST + "/v1/tracks/" + t.id + "/stream?app_name=" + encodeURIComponent(APP_NAME),
+            trackDur: t.duration || null,
+            start: 0,
+            dur: null
           };
           renderAudiusSel();
           aresults.innerHTML = "";
@@ -246,7 +273,9 @@
         music_artist: music ? music.artist : null,
         music_stream_url: music && music.source === "audius" ? music.stream : null,
         music_source: music ? music.source : "audius",
-        music_external_url: music && (music.source === "spotify" || music.source === "apple") ? music.url : null
+        music_external_url: music && (music.source === "spotify" || music.source === "apple") ? music.url : null,
+        music_start_sec: music && music.source === "audius" ? (music.start || 0) : 0,
+        music_duration_sec: music && music.source === "audius" ? (music.dur || null) : null
       };
       btn.textContent = "Publishing...";
       const { data: post, error: pErr } = await sb.from("posts").insert(row).select().single();
@@ -277,6 +306,13 @@
   (async function init() {
     const user = await requireAuth();
     if (!user) return;
+    const t0 = new URLSearchParams(window.location.search).get("type");
+    if (t0 === "post" || t0 === "reel" || t0 === "story") {
+      postType = t0;
+      document.querySelectorAll("#typeSeg button").forEach(function (b) {
+        b.classList.toggle("active", b.dataset.type === t0);
+      });
+    }
     topBar({ compose: false });
     bottomNav(null);
     me = await currentProfile();

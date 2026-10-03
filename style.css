@@ -310,3 +310,15 @@ textarea { resize: vertical; min-height: 90px; }
 .sharebar { position: sticky; bottom: 84px; padding: 14px 16px calc(10px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, var(--bg) 45%); z-index: 5; }
 .btn-share { width: 100%; padding: 16px; border: none; border-radius: 16px; font-size: 16px; font-weight: 800; color: #fff; background: linear-gradient(135deg, var(--accent), var(--maroon)); box-shadow: 0 6px 20px rgba(166,38,46,.35); }
 .btn-share:disabled { opacity: .55; box-shadow: none; }
+
+/* ---- music snippet picker ---- */
+.snip { margin-top: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+.snip-lab { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.snip-lab b { color: var(--text); }
+.snip input[type=range] { width: 100%; accent-color: var(--accent); background: transparent; border: none; padding: 0; margin: 0; }
+.snip .seg { margin: 10px 0 0; }
+.snip .seg button { flex: 1; }
+
+/* ---- story add tile ---- */
+.story-add { border: 2px dashed var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.story-add .mp-icon { font-size: 22px; }

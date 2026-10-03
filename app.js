@@ -70,41 +70,46 @@ function errHTML(e) {
 /* ---- shared music player (one stream at a time) ---- */
 let musicAudio = null;
 let musicBtn = null;
-function toggleMusic(url, btn) {
+let musicTimer = null;
+function stopMusicUI() {
+  if (musicTimer) { clearTimeout(musicTimer); musicTimer = null; }
+  if (musicBtn) {
+    musicBtn.classList.remove("playing");
+    const l = musicBtn.querySelector(".mstate");
+    if (l) l.textContent = "▶";
+  }
+}
+function toggleMusic(url, btn, start, dur) {
   const label = btn.querySelector(".mstate");
   if (musicAudio && musicBtn === btn && !musicAudio.paused) {
     musicAudio.pause();
-    btn.classList.remove("playing");
-    if (label) label.textContent = "▶";
+    stopMusicUI();
     return;
   }
-  if (musicAudio) {
-    musicAudio.pause();
-    if (musicBtn) {
-      musicBtn.classList.remove("playing");
-      const l = musicBtn.querySelector(".mstate");
-      if (l) l.textContent = "▶";
-    }
-  }
+  if (musicAudio) musicAudio.pause();
+  stopMusicUI();
   musicAudio = new Audio(url);
   musicBtn = btn;
   btn.classList.add("playing");
   if (label) label.textContent = "⏸";
-  musicAudio.play().catch(function () {
-    btn.classList.remove("playing");
-    if (label) label.textContent = "▶";
-  });
-  musicAudio.onended = function () {
-    btn.classList.remove("playing");
-    if (label) label.textContent = "▶";
+  const s = Math.max(0, start || 0);
+  const begin = function () {
+    try { if (s > 0 && isFinite(s)) musicAudio.currentTime = s; } catch (e) {}
+    musicAudio.play().catch(function () { stopMusicUI(); });
   };
+  if (musicAudio.readyState >= 1) begin();
+  else { musicAudio.addEventListener("loadedmetadata", begin, { once: true }); }
+  if (dur && dur > 0) {
+    musicTimer = setTimeout(function () { if (musicAudio) musicAudio.pause(); stopMusicUI(); }, dur * 1000);
+  }
+  musicAudio.onended = function () { stopMusicUI(); };
 }
 
 function musicBarHTML(post) {
   const src = post.music_source || "audius";
   if (src === "audius") {
     if (!post.music_stream_url) return "";
-    return '<button class="musicbar" data-url="' + esc(post.music_stream_url) + '" onclick="toggleMusic(this.dataset.url, this)">' +
+    return '<button class="musicbar" data-url="' + esc(post.music_stream_url) + '" data-start="' + (post.music_start_sec || 0) + '" data-dur="' + (post.music_duration_sec || "") + '" onclick="toggleMusic(this.dataset.url, this, parseFloat(this.dataset.start || 0), this.dataset.dur ? parseFloat(this.dataset.dur) : null)">' +
       '<span class="mstate">▶</span>' +
       '<span class="mtrack"><b>' + esc(post.music_title || "Unknown track") + "</b> · " + esc(post.music_artist || "Unknown artist") + "</span>" +
       '<span class="mlabel">Audius</span></button>';

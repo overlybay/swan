@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Swan — Edit profile</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+<main class="wrap" id="main"></main>
+<script>
+(function () {
+  const main = document.getElementById("main");
+  let me = null;
+  let avatarFile = null;
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+    topBar({});
+    bottomNav("profile");
+    me = await currentProfile();
+    if (!me) { main.innerHTML = errHTML("No profile found."); return; }
+    render();
+  }
+
+  function render() {
+    main.innerHTML =
+      '<div class="pad"><div class="ccard">' +
+      '<div class="chead">Edit profile</div>' +
+      '<div style="text-align:center;margin-bottom:16px">' +
+        '<div id="avWrap">' + avatarHTML(me.avatar_url, me.username, 96) + "</div>" +
+        '<label for="avFile" class="mini-btn" style="margin-top:10px;display:inline-block;cursor:pointer">Change photo</label>' +
+        '<input type="file" id="avFile" accept="image/*" class="hidden">' +
+      "</div>" +
+      '<div class="field"><label>Username</label><input id="fUser" value="' + esc(me.username) + '" maxlength="20" autocomplete="off"></div>' +
+      '<div class="field"><label>Display name</label><input id="fName" value="' + esc(me.display_name || "") + '" maxlength="40" autocomplete="off"></div>' +
+      '<div class="field"><label>Bio</label><textarea id="fBio" maxlength="160" placeholder="Tell people about you..." style="min-height:70px">' + esc(me.bio || "") + "</textarea></div>" +
+      '<button class="btn-share" id="saveBtn">Save</button>' +
+      '<div id="serr" style="margin-top:10px"></div>' +
+      "</div></div>";
+
+    document.getElementById("avFile").addEventListener("change", function (e) {
+      const f = e.target.files[0];
+      if (!f) return;
+      avatarFile = f;
+      document.getElementById("avWrap").innerHTML =
+        '<img src="' + URL.createObjectURL(f) + '" alt="preview" style="width:96px;height:96px;border-radius:50%;object-fit:cover;margin:0 auto">';
+    });
+    document.getElementById("saveBtn").addEventListener("click", save);
+  }
+
+  async function save() {
+    const errBox = document.getElementById("serr");
+    errBox.innerHTML = "";
+    const btn = document.getElementById("saveBtn");
+    const username = document.getElementById("fUser").value.trim().toLowerCase();
+    const displayName = document.getElementById("fName").value.trim();
+    const bio = document.getElementById("fBio").value.trim();
+    if (!/^[a-z0-9_]{3,20}$/.test(username)) {
+      errBox.innerHTML = errHTML("Username must be 3–20 characters: letters, numbers, underscores.");
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = "Saving...";
+    try {
+      if (username !== me.username) {
+        const { data: taken } = await sb.from("profiles").select("id").eq("username", username).maybeSingle();
+        if (taken) throw new Error("That username is taken — try another.");
+      }
+      let avatarUrl = me.avatar_url;
+      if (avatarFile) {
+        const safe = avatarFile.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+        const path = me.id + "/" + Date.now() + "_" + safe;
+        const { error: uErr } = await sb.storage.from("avatars").upload(path, avatarFile);
+        if (uErr) throw uErr;
+        avatarUrl = sb.storage.from("avatars").getPublicUrl(path).data.publicUrl;
+      }
+      const { error } = await sb.from("profiles").update({
+        username: username,
+        display_name: displayName || username,
+        bio: bio || null,
+        avatar_url: avatarUrl
+      }).eq("id", me.id);
+      if (error) throw error;
+      window.location.href = "profile.html";
+    } catch (e) {
+      errBox.innerHTML = errHTML(e);
+      btn.disabled = false;
+      btn.textContent = "Save";
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
