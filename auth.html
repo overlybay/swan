@@ -12,7 +12,7 @@
 <body>
 <div class="auth-wrap">
   <div class="auth-logo">
-    <img src="assets/swan-logo.webp" alt="Swan logo">
+    <img src="swan-logo.webp" alt="Swan logo">
     <h1>Swan</h1>
   </div>
   <div id="err"></div>
@@ -66,23 +66,21 @@
     if (!/^[a-z0-9_]{3,20}$/.test(username)) { fail("Username must be 3–20 characters: letters, numbers, underscores."); return; }
     if (!email || password.length < 6) { fail("Enter a valid email and a password of at least 6 characters."); return; }
     try {
-      const { data, error } = await sb.auth.signUp({ email: email, password: password });
+      const { data, error } = await sb.auth.signUp({
+        email: email,
+        password: password,
+        options: { data: { username: username } }
+      });
       if (error) throw error;
-      let uid = data.user && data.user.id;
-      if (!uid) {
-        const s = await sb.auth.getSession();
-        uid = s.data.session && s.data.session.user.id;
-      }
-      if (!uid) {
+      // The database creates the profile row automatically on signup.
+      const s = await sb.auth.getSession();
+      if (s.data.session) {
+        window.location.href = "index.html";
+      } else {
         errBox.innerHTML = '<div class="error-box">Account created! Check your email to confirm it, then log in.</div>';
-        return;
+        loginBox.classList.remove("hidden");
+        signupBox.classList.add("hidden");
       }
-      const { error: pErr } = await sb.from("profiles").insert({ id: uid, username: username, display_name: username });
-      if (pErr) {
-        if (pErr.code === "23505") throw new Error("That username is taken — try another.");
-        throw pErr;
-      }
-      window.location.href = "index.html";
     } catch (e) { fail(e); }
   };
 })();

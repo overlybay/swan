@@ -17,7 +17,13 @@ async function requireAuth() {
 async function currentProfile() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return null;
-  const { data } = await sb.from("profiles").select("*").eq("id", user.id).single();
+  let { data } = await sb.from("profiles").select("*").eq("id", user.id).single();
+  if (!data) {
+    // Safety net: profile row missing (e.g. signed up before the auto-create trigger).
+    const uname = (user.user_metadata && user.user_metadata.username) || ("user_" + user.id.slice(0, 8));
+    const { data: created } = await sb.from("profiles").insert({ id: user.id, username: uname, display_name: uname }).select().single();
+    data = created || null;
+  }
   return data || null;
 }
 
@@ -121,7 +127,7 @@ const SVG_PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 function topBar(opts) {
   opts = opts || {};
   let html = '<header class="topbar">' +
-    '<a class="brand" href="index.html"><img src="assets/swan-logo.webp" alt="Swan"><span>Swan</span></a>' +
+    '<a class="brand" href="index.html"><img src="swan-logo.webp" alt="Swan"><span>Swan</span></a>' +
     '<div class="topbar-actions">';
   if (opts.activity !== false) html += '<a class="icon-btn" href="activity.html" aria-label="Activity">' + SVG_HEART + "</a>";
   if (opts.compose !== false) html += '<a class="icon-btn" href="compose.html" aria-label="New post">' + SVG_PLUS + "</a>";
