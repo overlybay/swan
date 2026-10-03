@@ -159,6 +159,7 @@ function openPostMenu(pid, isArchived) {
   ov.id = "postmenu-ov";
   ov.className = "sheet-ov";
   ov.innerHTML = '<div class="sheet">' +
+    (isArchived ? "" : '<button data-act="addphotos">Add photos</button>') +
     (isArchived ? '<button data-act="unarchive">Unarchive</button>' : '<button data-act="archive">Archive</button>') +
     '<button data-act="delete" class="danger">Delete</button>' +
     '<button data-act="cancel">Cancel</button></div>';
@@ -167,6 +168,28 @@ function openPostMenu(pid, isArchived) {
     const b = e.target.closest("button");
     if (!b || b.dataset.act === "cancel" || e.target === ov) { closePostMenu(); return; }
     const act = b.dataset.act;
+    if (act === "addphotos") {
+      closePostMenu();
+      const fi = document.createElement("input");
+      fi.type = "file";
+      fi.accept = "image/*,video/*";
+      fi.multiple = true;
+      fi.onchange = async function () {
+        const files = Array.from(fi.files || []);
+        if (!files.length) return;
+        try {
+          const urls = [];
+          for (const f of files) urls.push(await uploadMedia(ME.id, f));
+          const { data: cur, error: selErr } = await sb.from("posts").select("media_urls").eq("id", pid).single();
+          if (selErr) throw selErr;
+          const { error } = await sb.from("posts").update({ media_urls: (cur.media_urls || []).concat(urls) }).eq("id", pid);
+          if (error) throw error;
+          document.dispatchEvent(new CustomEvent("postschanged", { detail: { id: pid, act: "media-added" } }));
+        } catch (err) { alert(err.message || err); }
+      };
+      fi.click();
+      return;
+    }
     try {
       if (act === "archive" || act === "unarchive") await archivePost(pid, act === "archive");
       else if (act === "delete") {
@@ -300,3 +323,196 @@ async function uploadMedia(userId, file) {
   const { data } = sb.storage.from("media").getPublicUrl(path);
   return data.publicUrl;
 }
+
+/* ============================================================
+   Shared post card (feed + single-post page)
+   ============================================================ */
+let ME = null;
+function setME(m) { ME = m; }
+
+const SVG_LIKE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21.2l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>';
+const SVG_COMMENT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
+
+function mediaHTML(url) {
+  if (isVideo(url)) return '<video src="' + esc(url) + '" controls playsinline preload="metadata"></video>';
+  return '<img src="' + esc(url) + '" alt="post" loading="lazy">';
+}
+
+function domainOf(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch (e) { return ""; }
+}
+
+/* One slide inside a post carousel: photo, video, web link, YouTube, Spotify */
+function slideInnerHTML(it) {
+  if (it.kind === "youtube") {
+    const vid = ytId(it.url);
+    return '<div class="cs-yt" data-vid="' + esc(vid || "") + '" data-url="' + esc(it.url) + '">' +
+      (vid ? '<img src="https://i.ytimg.com/vi/' + vid + '/hqdefault.jpg" alt="' + esc(it.title || "YouTube video") + '" loading="lazy">' : '<div class="cs-fallback">▶</div>') +
+      '<span class="bigplay" aria-hidden="true">▶</span>' +
+      '<div class="cs-meta"><b>' + esc(it.title || "YouTube video") + "</b><span>" + esc(it.subtitle || "YouTube") + "</span></div></div>";
+  }
+  if (it.kind === "spotify") {
+    const tid = spId(it.url);
+    return '<div class="cs-sp" data-tid="' + esc(tid || "") + '" data-url="' + esc(it.url) + '">' +
+      (it.thumb ? '<img src="' + esc(it.thumb) + '" alt="' + esc(it.title || "Spotify track") + '" loading="lazy">' : '<div class="cs-fallback sp">♪</div>') +
+      '<span class="bigplay" aria-hidden="true">▶</span>' +
+      '<div class="cs-meta"><b>' + esc(it.title || "Spotify track") + "</b><span>" + esc(it.subtitle || "Spotify") + "</span></div></div>";
+  }
+  if (it.kind === "web") {
+    const dom = domainOf(it.url);
+    const fav = dom ? "https://www.google.com/s2/favicons?domain=" + encodeURIComponent(dom) + "&sz=128" : "";
+    return '<a class="linkcard" href="' + esc(it.url) + '" target="_blank" rel="noopener">' +
+      (fav ? '<img class="linkcard-fav" src="' + fav + '" alt="">' : '<span class="linkcard-fav">🌐</span>') +
+      '<span class="grow"><b>' + esc(it.title || dom || "Web link") + "</b><span>" + esc(dom) + "</span></span>" +
+      '<span class="mlabel">↗</span></a>';
+  }
+  if (it.kind === "video" || (!it.kind && isVideo(it.url))) {
+    return '<video src="' + esc(it.url) + '" controls playsinline preload="metadata"></video>';
+  }
+  return '<img src="' + esc(it.url) + '" alt="post" loading="lazy">';
+}
+
+/* Swipeable carousel: uploaded media first, then link cards */
+function slidesHTML(post) {
+  const items = [];
+  (post.media_urls || []).forEach(function (u) { if (u) items.push({ kind: isVideo(u) ? "video" : "image", url: u }); });
+  (post.attachments || []).forEach(function (a) { if (a && a.url) items.push(a); });
+  if (!items.length) return "";
+  const multi = items.length > 1;
+  let h = '<div class="carousel' + (multi ? " multi" : "") + '">';
+  items.forEach(function (it) { h += '<div class="cslide">' + slideInnerHTML(it) + "</div>"; });
+  h += "</div>";
+  if (multi) {
+    h += '<div class="cdots" aria-hidden="true">' + items.map(function (_, i) {
+      return '<span class="' + (i === 0 ? "on" : "") + '"></span>';
+    }).join("") + "</div>";
+  }
+  return h;
+}
+
+function cardHTML(post, author, likeCount, liked, comments, commentAuthors) {
+  const pid = post.id;
+  const isMine = ME && post.author_id === ME.id;
+  let cmts = "";
+  comments.forEach(function (c) {
+    const a = commentAuthors[c.author_id] || { username: "?" };
+    cmts += "<div><b>" + esc(a.username) + "</b> " + esc(c.body) + "</div>";
+  });
+  return '<article class="card" id="post-' + pid + '">' +
+    '<div class="card-head">' +
+      '<a href="profile.html?u=' + esc(author.username) + '">' + avatarHTML(author.avatar_url, author.username, 38) + "</a>" +
+      '<div class="who"><a href="profile.html?u=' + esc(author.username) + '">' + esc(author.username) + '</a><div class="when">' + timeAgo(post.created_at) + (post.type === "reel" ? " · reel" : "") + "</div></div>" +
+      (isMine ? '<button class="icon-btn post-menu-btn" data-post="' + pid + '" aria-label="Post options" style="margin-left:auto">···</button>' : "") +
+    "</div>" +
+    '<div class="card-media">' + slidesHTML(post) + "</div>" +
+    musicBarHTML(post) +
+    '<div class="card-actions">' +
+      '<button class="action-btn like-btn' + (liked ? " liked" : "") + '" data-liked="' + (liked ? "1" : "0") + '" data-post="' + pid + '">' + SVG_LIKE + "</button>" +
+      '<button class="action-btn" data-focus="cinput-' + pid + '">' + SVG_COMMENT + "</button>" +
+    "</div>" +
+    '<div class="likes-line" id="likes-' + pid + '">' + likeCount + " like" + (likeCount === 1 ? "" : "s") + "</div>" +
+    (post.caption ? '<div class="caption-line"><b>' + esc(author.username) + "</b>" + esc(post.caption) + "</div>" : "") +
+    '<div class="comments-preview" id="cprev-' + pid + '">' + cmts + "</div>" +
+    '<div class="add-comment"><input id="cinput-' + pid + '" placeholder="Add a comment..." maxlength="300">' +
+    '<button class="mini-btn" data-post="' + pid + '">Post</button></div>' +
+  "</article>";
+}
+
+async function toggleLike(btn) {
+  const pid = btn.dataset.post;
+  const liked = btn.dataset.liked === "1";
+  btn.disabled = true;
+  try {
+    if (liked) {
+      const { error } = await sb.from("likes").delete().eq("user_id", ME.id).eq("post_id", pid);
+      if (error) throw error;
+      btn.dataset.liked = "0"; btn.classList.remove("liked");
+    } else {
+      const { error } = await sb.from("likes").insert({ user_id: ME.id, post_id: pid });
+      if (error) throw error;
+      btn.dataset.liked = "1"; btn.classList.add("liked");
+    }
+    const { count } = await sb.from("likes").select("*", { count: "exact", head: true }).eq("post_id", pid);
+    const el = document.getElementById("likes-" + pid);
+    if (el) el.textContent = (count || 0) + " like" + (count === 1 ? "" : "s");
+  } catch (e) { alert("Could not update like: " + (e.message || e)); }
+  btn.disabled = false;
+}
+
+async function addComment(pid) {
+  const input = document.getElementById("cinput-" + pid);
+  const body = input.value.trim();
+  if (!body) return;
+  try {
+    const { error } = await sb.from("comments").insert({ post_id: pid, author_id: ME.id, body: body });
+    if (error) throw error;
+    input.value = "";
+    const prev = document.getElementById("cprev-" + pid);
+    const div = document.createElement("div");
+    div.innerHTML = "<b>" + esc(ME.username) + "</b> " + esc(body);
+    prev.appendChild(div);
+  } catch (e) { alert("Could not post comment: " + (e.message || e)); }
+}
+
+/* Wire like / comment-focus / comment-submit / ··· buttons inside rendered cards */
+function wirePostCard(root) {
+  root.querySelectorAll(".like-btn").forEach(function (b) {
+    b.addEventListener("click", function () { toggleLike(b); });
+  });
+  root.querySelectorAll(".action-btn[data-focus]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      const inp = document.getElementById(b.dataset.focus);
+      if (inp) inp.focus();
+    });
+  });
+  root.querySelectorAll(".mini-btn[data-post]").forEach(function (b) {
+    b.addEventListener("click", function () { addComment(b.dataset.post); });
+  });
+  root.querySelectorAll(".add-comment input").forEach(function (inp) {
+    inp.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter") {
+        const m = inp.id.match(/^cinput-(.+)$/);
+        if (m) addComment(m[1]);
+      }
+    });
+  });
+  root.querySelectorAll(".post-menu-btn").forEach(function (b) {
+    b.addEventListener("click", function () { openPostMenu(b.dataset.post, false); });
+  });
+}
+
+/* Carousel dots follow the swipe */
+document.addEventListener("scroll", function (e) {
+  const t = e.target;
+  if (!t || !t.classList || !t.classList.contains("carousel")) return;
+  const idx = Math.round(t.scrollLeft / Math.max(1, t.clientWidth));
+  const dots = t.parentElement ? t.parentElement.querySelectorAll(".cdots span") : [];
+  dots.forEach(function (d, i) { d.classList.toggle("on", i === idx); });
+}, true);
+
+/* Inline play for carousel cards: YouTube + Spotify (no login needed) */
+document.addEventListener("click", function (e) {
+  const cy = e.target.closest(".cs-yt");
+  if (cy) {
+    document.querySelectorAll(".yt-slot").forEach(function (s) { s.innerHTML = ""; });
+    document.querySelectorAll(".sp-slot").forEach(function (s) { s.innerHTML = ""; });
+    if (cy.dataset.vid) {
+      cy.innerHTML = '<iframe src="https://www.youtube.com/embed/' + cy.dataset.vid +
+        '?autoplay=1&rel=0" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen style="width:100%;aspect-ratio:16/10;border:none;display:block"></iframe>';
+    } else if (cy.dataset.url) {
+      window.open(cy.dataset.url, "_blank");
+    }
+    return;
+  }
+  const cs = e.target.closest(".cs-sp");
+  if (cs) {
+    document.querySelectorAll(".yt-slot").forEach(function (s) { s.innerHTML = ""; });
+    document.querySelectorAll(".sp-slot").forEach(function (s) { s.innerHTML = ""; });
+    if (cs.dataset.tid) {
+      cs.innerHTML = '<iframe src="https://open.spotify.com/embed/track/' + cs.dataset.tid +
+        '?utm_source=generator&theme=0" allow="autoplay; encrypted-media" loading="lazy" style="width:100%;height:352px;border:none;display:block"></iframe>';
+    } else if (cs.dataset.url) {
+      window.open(cs.dataset.url, "_blank");
+    }
+  }
+});

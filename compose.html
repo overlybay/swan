@@ -72,11 +72,22 @@
 
   <div class="pad">
     <div class="ccard">
-      <div class="chead">Slide <span class="csub">optional</span></div>
-    <select id="slideSel"><option value="">Don't add to a slide</option></select>
-    <div id="newSlideRow" class="hidden" style="margin-top:8px">
-      <input id="newSlideTitle" placeholder="New slide title" maxlength="80">
-    </div>
+      <div class="chead">Link cards <span class="csub">web · YouTube · Spotify — swipeable</span></div>
+      <div id="cardPrev" class="thumb-row"></div>
+      <div class="btn-row" style="margin-bottom:10px">
+        <button class="btn btn-outline btn-sm" id="addWebBtn" type="button">🌐 Web link</button>
+        <button class="btn btn-outline btn-sm" id="addYtBtn" type="button">▶ YouTube</button>
+        <button class="btn btn-outline btn-sm" id="addSpBtn" type="button">♪ Spotify</button>
+      </div>
+      <div id="linkForm" class="hidden">
+        <div class="field"><label id="lfUrlLbl">Link URL</label><input id="lfUrl" placeholder="https://..." autocomplete="off" inputmode="url"></div>
+        <div class="field"><label>Title <span style="font-weight:400">(optional — we detect it)</span></label><input id="lfTitle" placeholder="Card title" maxlength="120"></div>
+        <div class="btn-row">
+          <button class="btn btn-sm" id="lfAdd" type="button">Add card</button>
+          <button class="btn btn-outline btn-sm" id="lfCancel" type="button">Cancel</button>
+        </div>
+        <div id="lfErr" style="margin-top:8px"></div>
+      </div>
     </div>
   </div>
 
@@ -207,7 +218,17 @@
   function renderExtSel() {
     if (music && (music.source === "spotify" || music.source === "apple" || music.source === "youtube")) {
       const lbl = music.source === "apple" ? "Apple Music" : music.source === "youtube" ? "YouTube" : "Spotify";
-      xsel.innerHTML = '<div class="track-row selected"><div class="grow"><div class="tt">' + esc(music.title) + '</div><div class="ta">' + esc(music.artist) + " · " + lbl + '</div></div><button class="mini-btn" id="xclear">Remove</button></div>';
+      let hint = "";
+      if (music.source === "youtube") {
+        hint = ytId(music.url)
+          ? '<div class="detect-ok">✓ Video detected — it will play inside the post.</div>'
+          : '<div class="detect-warn">⚠ Not a direct video link — inline play needs a youtube.com/watch?v=… or youtu.be/… link. Search links only open YouTube.</div>';
+      } else if (music.source === "spotify") {
+        hint = spId(music.url)
+          ? '<div class="detect-ok">✓ Track detected — a preview will play inside the post.</div>'
+          : '<div class="detect-warn">⚠ Not a direct track link — the preview needs an open.spotify.com/track/… link. Search links only open Spotify.</div>';
+      }
+      xsel.innerHTML = '<div class="track-row selected"><div class="grow"><div class="tt">' + esc(music.title) + '</div><div class="ta">' + esc(music.artist) + " · " + lbl + '</div></div><button class="mini-btn" id="xclear">Remove</button></div>' + hint;
       document.getElementById("xclear").onclick = function () { music = null; renderExtSel(); };
     } else { xsel.innerHTML = ""; }
   }
@@ -229,26 +250,93 @@
     renderExtSel();
   });
 
-  /* ---------- slides ---------- */
-  const slideSel = document.getElementById("slideSel");
-  const newSlideRow = document.getElementById("newSlideRow");
-  slideSel.addEventListener("change", function () {
-    newSlideRow.classList.toggle("hidden", slideSel.value !== "__new");
+  /* ---------- link cards (web / YouTube / Spotify) ---------- */
+  let cards = []; // {kind, url, title, subtitle, thumb}
+  let linkKind = null;
+
+  function renderCards() {
+    const el = document.getElementById("cardPrev");
+    el.innerHTML = "";
+    cards.forEach(function (c, i) {
+      const d = document.createElement("div");
+      d.className = "cardchip";
+      d.innerHTML =
+        (c.thumb ? '<img src="' + esc(c.thumb) + '" alt="">' : '<span class="cc-ico">' + (c.kind === "youtube" ? "▶" : c.kind === "spotify" ? "♪" : "🌐") + "</span>") +
+        '<span class="cc-t">' + esc(c.title || c.url) + '</span><button type="button" data-i="' + i + '" aria-label="Remove card">✕</button>';
+      el.appendChild(d);
+    });
+    el.querySelectorAll("button").forEach(function (b) {
+      b.addEventListener("click", function () { cards.splice(parseInt(b.dataset.i, 10), 1); renderCards(); });
+    });
+  }
+
+  function openLinkForm(kind) {
+    linkKind = kind;
+    document.getElementById("lfUrl").value = "";
+    document.getElementById("lfTitle").value = "";
+    document.getElementById("lfErr").innerHTML = "";
+    document.getElementById("lfUrlLbl").textContent =
+      kind === "youtube" ? "YouTube video link" : kind === "spotify" ? "Spotify track link" : "Web link URL";
+    document.getElementById("linkForm").classList.remove("hidden");
+    document.getElementById("lfUrl").focus();
+  }
+  document.getElementById("addWebBtn").addEventListener("click", function () { openLinkForm("web"); });
+  document.getElementById("addYtBtn").addEventListener("click", function () { openLinkForm("youtube"); });
+  document.getElementById("addSpBtn").addEventListener("click", function () { openLinkForm("spotify"); });
+  document.getElementById("lfCancel").addEventListener("click", function () {
+    document.getElementById("linkForm").classList.add("hidden");
   });
 
-  async function loadSlides() {
+  document.getElementById("lfAdd").addEventListener("click", async function () {
+    const url = document.getElementById("lfUrl").value.trim();
+    const typedTitle = document.getElementById("lfTitle").value.trim();
+    const errBox = document.getElementById("lfErr");
+    errBox.innerHTML = "";
+    if (!/^https?:\/\//i.test(url)) { errBox.innerHTML = errHTML("Paste a full link starting with https://"); return; }
+    const btn = this;
+    btn.disabled = true;
+    btn.textContent = "Detecting...";
     try {
-      const { data } = await sb.from("slides").select("id,title").eq("owner_id", me.id).order("created_at", { ascending: false });
-      (data || []).forEach(function (s) {
-        const o = document.createElement("option");
-        o.value = s.id; o.textContent = s.title;
-        slideSel.appendChild(o);
-      });
-      const o = document.createElement("option");
-      o.value = "__new"; o.textContent = "＋ New slide...";
-      slideSel.appendChild(o);
-    } catch (e) { /* non-fatal */ }
-  }
+      const card = { kind: linkKind, url: url, title: typedTitle, subtitle: "", thumb: "" };
+      if (linkKind === "youtube") {
+        const vid = ytId(url);
+        if (!vid) throw new Error("That isn't a YouTube video link. Open the video in YouTube, tap Share → Copy link, and paste it here.");
+        card.thumb = "https://i.ytimg.com/vi/" + vid + "/hqdefault.jpg";
+        if (!typedTitle) {
+          try {
+            const r = await fetch("https://www.youtube.com/oembed?url=" + encodeURIComponent(url) + "&format=json");
+            if (r.ok) { const j = await r.json(); card.title = j.title || ""; card.subtitle = j.author_name || "YouTube"; }
+          } catch (e) { /* non-fatal */ }
+        }
+        if (!card.title) card.title = "YouTube video";
+        if (!card.subtitle) card.subtitle = "YouTube";
+      } else if (linkKind === "spotify") {
+        const tid = spId(url);
+        if (!tid) throw new Error("That isn't a Spotify track link. In Spotify, tap Share → Copy link on a song, and paste it here.");
+        if (!typedTitle) {
+          try {
+            const r = await fetch("https://open.spotify.com/oembed?url=" + encodeURIComponent(url));
+            if (r.ok) { const j = await r.json(); card.title = j.title || ""; card.subtitle = j.author_name || "Spotify"; card.thumb = j.thumbnail_url || ""; }
+          } catch (e) { /* non-fatal */ }
+        }
+        if (!card.title) card.title = "Spotify track";
+        if (!card.subtitle) card.subtitle = "Spotify";
+      } else {
+        let dom = url;
+        try { dom = new URL(url).hostname.replace(/^www\./, ""); } catch (e) { /* keep raw */ }
+        card.thumb = "https://www.google.com/s2/favicons?domain=" + encodeURIComponent(dom) + "&sz=128";
+        if (!card.title) card.title = dom;
+        card.subtitle = dom;
+      }
+      cards.push(card);
+      document.getElementById("linkForm").classList.add("hidden");
+      renderCards();
+    } catch (e) {
+      errBox.innerHTML = errHTML(e);
+    }
+    btn.disabled = false;
+    btn.textContent = "Add card";
+  });
 
   /* ---------- publish ---------- */
   const perr = document.getElementById("perr");
@@ -278,27 +366,13 @@
         music_source: music ? music.source : "audius",
         music_external_url: music && (music.source === "spotify" || music.source === "apple" || music.source === "youtube") ? music.url : null,
         music_start_sec: music && music.source === "audius" ? (music.start || 0) : 0,
-        music_duration_sec: music && music.source === "audius" ? (music.dur || null) : null
+        music_duration_sec: music && music.source === "audius" ? (music.dur || null) : null,
+        attachments: cards
       };
       btn.textContent = "Publishing...";
       const { data: post, error: pErr } = await sb.from("posts").insert(row).select().single();
       if (pErr) throw pErr;
-
-      let slideId = slideSel.value;
-      if (slideId === "__new") {
-        const title = document.getElementById("newSlideTitle").value.trim();
-        if (!title) throw new Error("Give your new slide a title.");
-        const { data: s, error: sErr } = await sb.from("slides").insert({ owner_id: me.id, title: title }).select().single();
-        if (sErr) throw sErr;
-        slideId = s.id;
-      }
-      if (slideId) {
-        for (const u of mediaUrls) {
-          const { error: iErr } = await sb.from("slide_items").insert({ slide_id: slideId, added_by: me.id, media_url: u, caption: caption || null });
-          if (iErr) throw iErr;
-        }
-      }
-      window.location.href = slideId && slideSel.value === "__new" ? "slide.html?id=" + slideId : "index.html";
+      window.location.href = "index.html";
     } catch (e) {
       perr.innerHTML = errHTML(e);
       btn.disabled = false;
@@ -320,7 +394,6 @@
     bottomNav(null);
     me = await currentProfile();
     if (!me) { perr.innerHTML = errHTML("No profile found."); return; }
-    loadSlides();
   })();
 })();
 </script>

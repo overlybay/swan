@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Post · Swan</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+<main class="wrap" id="main"></main>
+<script>
+(function () {
+  const main = document.getElementById("main");
+  let me = null;
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+    topBar({ title: "Post" });
+    bottomNav(null);
+    try {
+      me = await currentProfile();
+      if (!me) { main.innerHTML = errHTML("No profile found. Please sign up again."); return; }
+      setME(me);
+
+      const pid = new URLSearchParams(window.location.search).get("id");
+      if (!pid) throw new Error("No post specified.");
+
+      const { data: post, error } = await sb.from("posts").select("*").eq("id", pid).single();
+      if (error || !post) throw new Error("Post not found.");
+      if (post.archived && post.author_id !== me.id) throw new Error("Post not found.");
+
+      const { data: author } = await sb.from("profiles").select("id,username,avatar_url").eq("id", post.author_id).single();
+      const { count } = await sb.from("likes").select("*", { count: "exact", head: true }).eq("post_id", pid);
+      const { data: myLike } = await sb.from("likes").select("post_id").eq("user_id", me.id).eq("post_id", pid).maybeSingle();
+      const { data: comments } = await sb.from("comments").select("*").eq("post_id", pid).order("created_at", { ascending: true }).limit(100);
+      const cids = [...new Set((comments || []).map(function (c) { return c.author_id; }))];
+      let camap = {};
+      if (cids.length) {
+        const { data: ca } = await sb.from("profiles").select("id,username").in("id", cids);
+        (ca || []).forEach(function (a) { camap[a.id] = a; });
+      }
+
+      main.innerHTML = '<div class="pad"><a href="javascript:history.back()" class="backlink">‹ Back</a></div>' +
+        cardHTML(post, author || { username: "?", avatar_url: null }, count || 0, !!myLike, comments || [], camap);
+      wirePostCard(main);
+
+      document.addEventListener("postschanged", function (e) {
+        if (e.detail.id !== pid) return;
+        if (e.detail.act === "media-added") { window.location.reload(); return; }
+        window.location.href = "index.html";
+      });
+    } catch (e) {
+      main.innerHTML = errHTML(e);
+    }
+  }
+  init();
+})();
+</script>
+</body>
+</html>

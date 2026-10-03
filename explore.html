@@ -70,20 +70,10 @@
         const inner = isVideo(u)
           ? '<video src="' + esc(u) + '" preload="metadata" muted playsinline></video>'
           : '<img src="' + esc(u) + '" alt="post" loading="lazy">';
-        html += '<a href="profile.html?u=" data-pid="' + p.id + '">' + inner + "</a>";
+        html += '<a href="post.html?id=' + p.id + '">' + inner + "</a>";
       });
       html += "</div>";
       grid.innerHTML = html;
-      // Discover tiles link to the author's profile (no single-post page in v1)
-      const authorIds = [...new Set(items.map(function (p) { return p.author_id; }))];
-      const { data: authors } = await sb.from("profiles").select("id,username").in("id", authorIds);
-      const amap = {};
-      (authors || []).forEach(function (a) { amap[a.id] = a.username; });
-      grid.querySelectorAll("a[data-pid]").forEach(function (a) {
-        const pid = a.dataset.pid;
-        const item = items.find(function (p) { return p.id === pid; });
-        if (item && amap[item.author_id]) a.href = "profile.html?u=" + encodeURIComponent(amap[item.author_id]);
-      });
     } catch (e) { grid.innerHTML = errHTML(e); }
   }
 

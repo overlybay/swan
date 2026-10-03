@@ -344,3 +344,40 @@ textarea { resize: vertical; min-height: 90px; }
 .yt-slot:empty, .sp-slot:empty { display: none; }
 .yt-slot iframe { width: 100%; height: 210px; border: none; border-radius: 12px; margin-top: 8px; background: #000; }
 .sp-slot iframe { width: 100%; height: 80px; border: none; border-radius: 12px; margin-top: 8px; }
+
+/* ---- swipeable post carousel ---- */
+.carousel.multi { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.carousel.multi::-webkit-scrollbar { display: none; }
+.cslide { position: relative; flex: 0 0 100%; scroll-snap-align: center; background: #000; min-width: 0; }
+.carousel.multi .cslide img, .carousel.multi .cslide video { width: 100%; aspect-ratio: 4/5; object-fit: cover; display: block; }
+.carousel:not(.multi) .cslide img, .carousel:not(.multi) .cslide video { width: 100%; display: block; }
+.cdots { display: flex; gap: 6px; justify-content: center; padding: 8px 0 2px; }
+.cdots span { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+.cdots span.on { background: #fff; }
+
+/* ---- carousel rich cards ---- */
+.cs-yt, .cs-sp { position: relative; cursor: pointer; }
+.cs-yt img, .cs-sp img { width: 100%; aspect-ratio: 4/5; object-fit: cover; display: block; }
+.cs-fallback { width: 100%; aspect-ratio: 4/5; display: flex; align-items: center; justify-content: center; font-size: 56px; background: var(--surface2); color: var(--text); }
+.cs-fallback.sp { background: #1db954; color: #000; }
+.bigplay { position: absolute; top: 42%; left: 50%; transform: translate(-50%, -50%); width: 64px; height: 64px; border-radius: 50%; background: rgba(166,38,46,.92); color: #fff; font-size: 22px; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.cs-meta { position: absolute; left: 0; right: 0; bottom: 0; padding: 26px 12px 10px; background: linear-gradient(transparent, rgba(0,0,0,.85)); text-align: left; }
+.cs-meta b { display: block; font-size: 14px; color: #fff; }
+.cs-meta span { font-size: 12px; color: #c9b8b8; }
+.linkcard { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 220px; padding: 20px 16px; background: var(--surface2); color: var(--text); text-align: left; border: none; }
+.linkcard-fav { width: 44px; height: 44px; border-radius: 10px; flex-shrink: 0; }
+.linkcard .grow { flex: 1; min-width: 0; }
+.linkcard .grow b { display: block; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.linkcard .grow span { font-size: 12px; color: var(--muted); }
+
+/* ---- compose link-card builder ---- */
+.cardchip { display: flex; align-items: center; gap: 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 6px 8px; margin-bottom: 6px; }
+.cardchip img { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; flex-shrink: 0; }
+.cardchip .cc-ico { width: 40px; height: 40px; border-radius: 8px; background: var(--maroon); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.cardchip .cc-t { flex: 1; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cardchip button { background: none; border: none; color: var(--muted); font-size: 14px; }
+.detect-ok { margin-top: 8px; font-size: 12px; color: #4ade80; }
+.detect-warn { margin-top: 8px; font-size: 12px; color: #fbbf24; }
+
+/* ---- misc ---- */
+.backlink { color: var(--muted); font-size: 15px; font-weight: 600; }
