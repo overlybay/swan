@@ -381,3 +381,9 @@ textarea { resize: vertical; min-height: 90px; }
 
 /* ---- misc ---- */
 .backlink { color: var(--muted); font-size: 15px; font-weight: 600; }
+
+/* ---- autoplay sound pill ---- */
+#soundpill { position: fixed; left: 50%; transform: translateX(-50%); bottom: 86px; z-index: 60;
+  background: rgba(24,10,12,.94); border: 1px solid var(--accent); color: #fff;
+  padding: 10px 18px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  box-shadow: 0 4px 18px rgba(0,0,0,.5); cursor: pointer; white-space: nowrap; }

@@ -149,6 +149,7 @@
       main.innerHTML = storiesHTML + feedHTML;
 
       wirePostCard(main);
+      initFeedAutoplay(main);
       main.querySelectorAll(".story-item").forEach(function (b) {
         b.addEventListener("click", function () { openStory(parseInt(b.dataset.ai, 10), 0); });
       });

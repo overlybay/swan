@@ -47,6 +47,7 @@
       main.innerHTML = '<div class="pad"><a href="javascript:history.back()" class="backlink">‹ Back</a></div>' +
         cardHTML(post, author || { username: "?", avatar_url: null }, count || 0, !!myLike, comments || [], camap);
       wirePostCard(main);
+      initFeedAutoplay(main);
 
       document.addEventListener("postschanged", function (e) {
         if (e.detail.id !== pid) return;

@@ -68,41 +68,144 @@ function errHTML(e) {
 }
 
 /* ---- shared music player (one stream at a time) ---- */
-let musicAudio = null;
-let musicBtn = null;
-let musicTimer = null;
-function stopMusicUI() {
-  if (musicTimer) { clearTimeout(musicTimer); musicTimer = null; }
-  if (musicBtn) {
-    musicBtn.classList.remove("playing");
-    const l = musicBtn.querySelector(".mstate");
+let feedAudio = null;
+let feedAudioBar = null;
+let feedAudioTimer = null;
+let audioUnlocked = false;
+
+function stopFeedAudioUI() {
+  if (feedAudioTimer) { clearTimeout(feedAudioTimer); feedAudioTimer = null; }
+  if (feedAudioBar) {
+    feedAudioBar.classList.remove("playing");
+    const l = feedAudioBar.querySelector(".mstate");
     if (l) l.textContent = "▶";
+    feedAudioBar = null;
   }
 }
+function stopFeedAudio() {
+  if (feedAudio) { try { feedAudio.pause(); } catch (e) {} feedAudio = null; }
+  stopFeedAudioUI();
+}
+function playAudiusBar(bar) {
+  stopAllPlayback();
+  const url = bar.dataset.url;
+  const start = parseFloat(bar.dataset.start || 0);
+  const dur = bar.dataset.dur ? parseFloat(bar.dataset.dur) : null;
+  feedAudio = new Audio(url);
+  feedAudioBar = bar;
+  bar.classList.add("playing");
+  const label = bar.querySelector(".mstate");
+  if (label) label.textContent = "⏸";
+  const begin = function () {
+    try { if (start > 0 && isFinite(start)) feedAudio.currentTime = start; } catch (e) {}
+    const p = feedAudio.play();
+    if (p && p.catch) p.catch(function () { stopFeedAudio(); });
+  };
+  if (feedAudio.readyState >= 1) begin();
+  else feedAudio.addEventListener("loadedmetadata", begin, { once: true });
+  if (dur && dur > 0) feedAudioTimer = setTimeout(stopFeedAudio, dur * 1000);
+  feedAudio.onended = stopFeedAudio;
+}
 function toggleMusic(url, btn, start, dur) {
-  const label = btn.querySelector(".mstate");
-  if (musicAudio && musicBtn === btn && !musicAudio.paused) {
-    musicAudio.pause();
-    stopMusicUI();
+  if (feedAudioBar === btn && feedAudio && !feedAudio.paused) { stopFeedAudio(); return; }
+  playAudiusBar(btn);
+}
+
+/* ---- YouTube inline players ---- */
+function clearYouTube() {
+  document.querySelectorAll(".yt-slot").forEach(function (s) { s.innerHTML = ""; });
+  document.querySelectorAll(".sp-slot").forEach(function (s) { s.innerHTML = ""; });
+  document.querySelectorAll(".yt-play").forEach(function (x) { x.style.display = ""; });
+  document.querySelectorAll(".sp-play").forEach(function (x) { x.style.display = ""; });
+  document.querySelectorAll(".cs-yt iframe, .cs-sp iframe").forEach(function (f) {
+    const el = f.closest(".cs-yt, .cs-sp");
+    if (el && el.dataset.orig) el.innerHTML = el.dataset.orig;
+  });
+}
+function playYouTubeBar(bar) {
+  if (!bar) return false;
+  const btn = bar.querySelector(".yt-play");
+  const slot = bar.querySelector(".yt-slot");
+  if (!btn || !slot || !btn.dataset.vid) {
+    if (btn && btn.dataset.url) window.open(btn.dataset.url, "_blank");
+    return false;
+  }
+  stopAllPlayback();
+  slot.innerHTML = '<iframe src="https://www.youtube.com/embed/' + btn.dataset.vid +
+    '?autoplay=1&rel=0" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>';
+  btn.style.display = "none";
+  bar.classList.add("playing");
+  return true;
+}
+function playYouTubeCard(el) {
+  if (!el.dataset.vid || el.querySelector("iframe")) return false;
+  if (!el.dataset.orig) el.dataset.orig = el.innerHTML;
+  stopAllPlayback();
+  el.innerHTML = '<iframe src="https://www.youtube.com/embed/' + el.dataset.vid +
+    '?autoplay=1&rel=0" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen style="width:100%;aspect-ratio:16/10;border:none;display:block"></iframe>';
+  return true;
+}
+function stopAllPlayback() {
+  stopFeedAudio();
+  clearYouTube();
+}
+
+/* ---- scroll autoplay: a post's music starts as it scrolls into view ---- */
+let autoplayObs = null;
+let activeCard = null;
+const visMap = new Map();
+
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  const pill = document.getElementById("soundpill");
+  if (pill) pill.remove();
+  pickActive();
+}
+document.addEventListener("pointerdown", unlockAudio);
+
+function pickActive() {
+  let best = null, bestR = 0.55;
+  visMap.forEach(function (r, card) {
+    if (!document.body.contains(card)) { visMap.delete(card); return; }
+    if (r > bestR) { bestR = r; best = card; }
+  });
+  if (best === activeCard) return;
+  activeCard = best;
+  stopAllPlayback();
+  if (best && audioUnlocked) startCardAudio(best);
+}
+function startCardAudio(card) {
+  const abar = card.querySelector('.musicbar[data-url]');
+  if (abar) { playAudiusBar(abar); return; }
+  const ybtn = card.querySelector(".yt-play");
+  if (ybtn && ybtn.dataset.vid && ybtn.style.display !== "none") {
+    playYouTubeBar(ybtn.closest(".musicbar"));
     return;
   }
-  if (musicAudio) musicAudio.pause();
-  stopMusicUI();
-  musicAudio = new Audio(url);
-  musicBtn = btn;
-  btn.classList.add("playing");
-  if (label) label.textContent = "⏸";
-  const s = Math.max(0, start || 0);
-  const begin = function () {
-    try { if (s > 0 && isFinite(s)) musicAudio.currentTime = s; } catch (e) {}
-    musicAudio.play().catch(function () { stopMusicUI(); });
-  };
-  if (musicAudio.readyState >= 1) begin();
-  else { musicAudio.addEventListener("loadedmetadata", begin, { once: true }); }
-  if (dur && dur > 0) {
-    musicTimer = setTimeout(function () { if (musicAudio) musicAudio.pause(); stopMusicUI(); }, dur * 1000);
+  const yc = card.querySelector(".cs-yt[data-vid]");
+  if (yc && !yc.querySelector("iframe")) playYouTubeCard(yc);
+}
+function initFeedAutoplay(root) {
+  if (autoplayObs) { autoplayObs.disconnect(); autoplayObs = null; }
+  visMap.clear();
+  activeCard = null;
+  if (!("IntersectionObserver" in window)) return;
+  if (!audioUnlocked && !document.getElementById("soundpill")) {
+    const pill = document.createElement("div");
+    pill.id = "soundpill";
+    pill.textContent = "🔊 Tap anywhere for sound";
+    pill.addEventListener("click", unlockAudio);
+    document.body.appendChild(pill);
   }
-  musicAudio.onended = function () { stopMusicUI(); };
+  const cards = root.querySelectorAll("article.card");
+  if (!cards.length) return;
+  autoplayObs = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) { visMap.set(en.target, en.isIntersecting ? en.intersectionRatio : 0); });
+    pickActive();
+  }, { threshold: [0, 0.25, 0.5, 0.6, 0.75, 1] });
+  cards.forEach(function (c) { autoplayObs.observe(c); });
+  pickActive();
 }
 
 /* ---- archive / delete (own posts) ---- */
@@ -123,29 +226,14 @@ function closePostMenu() {
 document.addEventListener("click", function (e) {
   const yb = e.target.closest(".yt-play");
   if (yb) {
-    const bar = yb.closest(".musicbar");
-    const slot = bar ? bar.querySelector(".yt-slot") : null;
-    document.querySelectorAll(".yt-slot").forEach(function (s) { s.innerHTML = ""; });
-    document.querySelectorAll(".sp-slot").forEach(function (s) { s.innerHTML = ""; });
-    document.querySelectorAll(".yt-play").forEach(function (x) { x.style.display = ""; });
-    document.querySelectorAll(".sp-play").forEach(function (x) { x.style.display = ""; });
-    if (yb.dataset.vid && slot) {
-      slot.innerHTML = '<iframe src="https://www.youtube.com/embed/' + yb.dataset.vid +
-        '?autoplay=1&rel=0" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>';
-      yb.style.display = "none";
-    } else if (yb.dataset.url) {
-      window.open(yb.dataset.url, "_blank");
-    }
+    playYouTubeBar(yb.closest(".musicbar"));
     return;
   }
   const pb = e.target.closest(".sp-play");
   if (pb) {
     const bar = pb.closest(".musicbar");
     const slot = bar ? bar.querySelector(".sp-slot") : null;
-    document.querySelectorAll(".yt-slot").forEach(function (s) { s.innerHTML = ""; });
-    document.querySelectorAll(".sp-slot").forEach(function (s) { s.innerHTML = ""; });
-    document.querySelectorAll(".yt-play").forEach(function (x) { x.style.display = ""; });
-    document.querySelectorAll(".sp-play").forEach(function (x) { x.style.display = ""; });
+    stopAllPlayback();
     if (slot) {
       slot.innerHTML = '<iframe src="https://open.spotify.com/embed/track/' + pb.dataset.tid +
         '?utm_source=generator&theme=0" allow="autoplay; encrypted-media" loading="lazy"></iframe>';
@@ -494,21 +582,14 @@ document.addEventListener("scroll", function (e) {
 document.addEventListener("click", function (e) {
   const cy = e.target.closest(".cs-yt");
   if (cy) {
-    document.querySelectorAll(".yt-slot").forEach(function (s) { s.innerHTML = ""; });
-    document.querySelectorAll(".sp-slot").forEach(function (s) { s.innerHTML = ""; });
-    if (cy.dataset.vid) {
-      cy.innerHTML = '<iframe src="https://www.youtube.com/embed/' + cy.dataset.vid +
-        '?autoplay=1&rel=0" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen style="width:100%;aspect-ratio:16/10;border:none;display:block"></iframe>';
-    } else if (cy.dataset.url) {
-      window.open(cy.dataset.url, "_blank");
-    }
+    if (!playYouTubeCard(cy) && cy.dataset.url) window.open(cy.dataset.url, "_blank");
     return;
   }
   const cs = e.target.closest(".cs-sp");
   if (cs) {
-    document.querySelectorAll(".yt-slot").forEach(function (s) { s.innerHTML = ""; });
-    document.querySelectorAll(".sp-slot").forEach(function (s) { s.innerHTML = ""; });
     if (cs.dataset.tid) {
+      if (!cs.dataset.orig) cs.dataset.orig = cs.innerHTML;
+      stopAllPlayback();
       cs.innerHTML = '<iframe src="https://open.spotify.com/embed/track/' + cs.dataset.tid +
         '?utm_source=generator&theme=0" allow="autoplay; encrypted-media" loading="lazy" style="width:100%;height:352px;border:none;display:block"></iframe>';
     } else if (cs.dataset.url) {
