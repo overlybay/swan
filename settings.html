@@ -41,7 +41,14 @@
       '<div class="field"><label>Bio</label><textarea id="fBio" maxlength="160" placeholder="Tell people about you..." style="min-height:70px">' + esc(me.bio || "") + "</textarea></div>" +
       '<button class="btn-share" id="saveBtn">Save</button>' +
       '<div id="serr" style="margin-top:10px"></div>' +
-      "</div></div>";
+      "</div>" +
+      '<div class="pad"><button class="signout-btn" id="signOutBtn">Sign out</button></div></div>';
+
+    document.getElementById("signOutBtn").addEventListener("click", async function () {
+      if (!confirm("Sign out of Swan?")) return;
+      try { await sb.auth.signOut(); } catch (e) {}
+      window.location.href = "auth.html";
+    });
 
     document.getElementById("avFile").addEventListener("change", function (e) {
       const f = e.target.files[0];
