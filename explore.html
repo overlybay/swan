@@ -57,7 +57,7 @@
   async function loadDiscover() {
     try {
       const { data, error } = await sb.from("posts").select("id,media_urls,type,author_id")
-        .eq("type", "post").order("created_at", { ascending: false }).limit(30);
+        .eq("type", "post").eq("archived", false).order("created_at", { ascending: false }).limit(30);
       if (error) throw error;
       const items = (data || []).filter(function (p) { return p.media_urls && p.media_urls.length; });
       if (!items.length) {

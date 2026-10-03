@@ -59,6 +59,7 @@
       <div class="seg" id="srcSeg">
         <button data-src="spotify" class="active">Spotify</button>
         <button data-src="apple">Apple Music</button>
+        <button data-src="youtube">YouTube</button>
       </div>
       <div class="field"><label>Track link (or leave blank to link a search)</label><input id="xurl" placeholder="Paste track link here" autocomplete="off"></div>
       <div class="field"><label>Song title</label><input id="xtitle" placeholder="Song title" maxlength="120"></div>
@@ -204,8 +205,8 @@
   /* ---------- Spotify / Apple Music attach ---------- */
   const xsel = document.getElementById("xsel");
   function renderExtSel() {
-    if (music && (music.source === "spotify" || music.source === "apple")) {
-      const lbl = music.source === "apple" ? "Apple Music" : "Spotify";
+    if (music && (music.source === "spotify" || music.source === "apple" || music.source === "youtube")) {
+      const lbl = music.source === "apple" ? "Apple Music" : music.source === "youtube" ? "YouTube" : "Spotify";
       xsel.innerHTML = '<div class="track-row selected"><div class="grow"><div class="tt">' + esc(music.title) + '</div><div class="ta">' + esc(music.artist) + " · " + lbl + '</div></div><button class="mini-btn" id="xclear">Remove</button></div>';
       document.getElementById("xclear").onclick = function () { music = null; renderExtSel(); };
     } else { xsel.innerHTML = ""; }
@@ -220,6 +221,8 @@
       const q = encodeURIComponent((title + " " + artist).trim());
       finalUrl = extSource === "apple"
         ? "https://music.apple.com/us/search?term=" + q
+        : extSource === "youtube"
+        ? "https://www.youtube.com/results?search_query=" + q
         : "https://open.spotify.com/search/" + q;
     }
     music = { source: extSource, title: title || "Shared track", artist: artist || "Unknown artist", url: finalUrl };
@@ -273,7 +276,7 @@
         music_artist: music ? music.artist : null,
         music_stream_url: music && music.source === "audius" ? music.stream : null,
         music_source: music ? music.source : "audius",
-        music_external_url: music && (music.source === "spotify" || music.source === "apple") ? music.url : null,
+        music_external_url: music && (music.source === "spotify" || music.source === "apple" || music.source === "youtube") ? music.url : null,
         music_start_sec: music && music.source === "audius" ? (music.start || 0) : 0,
         music_duration_sec: music && music.source === "audius" ? (music.dur || null) : null
       };

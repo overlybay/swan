@@ -105,6 +105,90 @@ function toggleMusic(url, btn, start, dur) {
   musicAudio.onended = function () { stopMusicUI(); };
 }
 
+/* ---- archive / delete (own posts) ---- */
+async function archivePost(pid, arch) {
+  const { error } = await sb.from("posts").update({ archived: !!arch }).eq("id", pid);
+  if (error) throw error;
+}
+async function deletePost(pid) {
+  const { error } = await sb.from("posts").delete().eq("id", pid);
+  if (error) throw error;
+}
+function closePostMenu() {
+  const o = document.getElementById("postmenu-ov");
+  if (o) o.remove();
+}
+
+/* ---- inline players: YouTube + Spotify preview (no API keys needed) ---- */
+document.addEventListener("click", function (e) {
+  const yb = e.target.closest(".yt-play");
+  if (yb) {
+    const bar = yb.closest(".musicbar");
+    const slot = bar ? bar.querySelector(".yt-slot") : null;
+    document.querySelectorAll(".yt-slot").forEach(function (s) { s.innerHTML = ""; });
+    document.querySelectorAll(".sp-slot").forEach(function (s) { s.innerHTML = ""; });
+    document.querySelectorAll(".yt-play").forEach(function (x) { x.style.display = ""; });
+    document.querySelectorAll(".sp-play").forEach(function (x) { x.style.display = ""; });
+    if (yb.dataset.vid && slot) {
+      slot.innerHTML = '<iframe src="https://www.youtube.com/embed/' + yb.dataset.vid +
+        '?autoplay=1&rel=0" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>';
+      yb.style.display = "none";
+    } else if (yb.dataset.url) {
+      window.open(yb.dataset.url, "_blank");
+    }
+    return;
+  }
+  const pb = e.target.closest(".sp-play");
+  if (pb) {
+    const bar = pb.closest(".musicbar");
+    const slot = bar ? bar.querySelector(".sp-slot") : null;
+    document.querySelectorAll(".yt-slot").forEach(function (s) { s.innerHTML = ""; });
+    document.querySelectorAll(".sp-slot").forEach(function (s) { s.innerHTML = ""; });
+    document.querySelectorAll(".yt-play").forEach(function (x) { x.style.display = ""; });
+    document.querySelectorAll(".sp-play").forEach(function (x) { x.style.display = ""; });
+    if (slot) {
+      slot.innerHTML = '<iframe src="https://open.spotify.com/embed/track/' + pb.dataset.tid +
+        '?utm_source=generator&theme=0" allow="autoplay; encrypted-media" loading="lazy"></iframe>';
+      pb.style.display = "none";
+    }
+  }
+});
+function openPostMenu(pid, isArchived) {
+  closePostMenu();
+  const ov = document.createElement("div");
+  ov.id = "postmenu-ov";
+  ov.className = "sheet-ov";
+  ov.innerHTML = '<div class="sheet">' +
+    (isArchived ? '<button data-act="unarchive">Unarchive</button>' : '<button data-act="archive">Archive</button>') +
+    '<button data-act="delete" class="danger">Delete</button>' +
+    '<button data-act="cancel">Cancel</button></div>';
+  document.body.appendChild(ov);
+  ov.addEventListener("click", async function (e) {
+    const b = e.target.closest("button");
+    if (!b || b.dataset.act === "cancel" || e.target === ov) { closePostMenu(); return; }
+    const act = b.dataset.act;
+    try {
+      if (act === "archive" || act === "unarchive") await archivePost(pid, act === "archive");
+      else if (act === "delete") {
+        if (!confirm("Delete this post permanently?")) return;
+        await deletePost(pid);
+      }
+      closePostMenu();
+      document.dispatchEvent(new CustomEvent("postschanged", { detail: { id: pid, act: act } }));
+    } catch (err) { alert(err.message || err); }
+  });
+}
+
+function ytId(url) {
+  if (!url) return null;
+  const m = String(url).match(/(?:youtube\.com\/(?:watch\?[^#]*v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+function spId(url) {
+  if (!url) return null;
+  const m = String(url).match(/open\.spotify\.com\/track\/([A-Za-z0-9]{22})|spotify:track:([A-Za-z0-9]{22})/);
+  return m ? (m[1] || m[2]) : null;
+}
 function musicBarHTML(post) {
   const src = post.music_source || "audius";
   if (src === "audius") {
@@ -114,9 +198,32 @@ function musicBarHTML(post) {
       '<span class="mtrack"><b>' + esc(post.music_title || "Unknown track") + "</b> · " + esc(post.music_artist || "Unknown artist") + "</span>" +
       '<span class="mlabel">Audius</span></button>';
   }
-  // spotify / apple: open the external track link in a new tab
+  // youtube: tap to play the video right inside the post
+  if (src === "youtube") {
+    const vid = ytId(post.music_external_url);
+    if (!vid && !post.music_title) return "";
+    const url = post.music_external_url || "";
+    return '<div class="musicbar ext">' +
+      '<span class="mstate">▶</span>' +
+      '<span class="mtrack"><b>' + esc(post.music_title || "YouTube video") + "</b> · " + esc(post.music_artist || "YouTube") + "</span>" +
+      (vid ? '<button class="mini-btn yt-play" data-vid="' + esc(vid) + '" data-url="' + esc(url) + '">Play</button>' : "") +
+      (url ? ' <a class="mlabel" href="' + esc(url) + '" target="_blank" rel="noopener">YouTube ↗</a>' : "") +
+      '<div class="yt-slot"></div></div>';
+  }
+  // spotify: tap for an inline 30-second preview (no login needed)
+  if (src === "spotify") {
+    const tid = spId(post.music_external_url);
+    if (!post.music_external_url && !post.music_title) return "";
+    return '<div class="musicbar ext">' +
+      '<span class="mstate">♪</span>' +
+      '<span class="mtrack"><b>' + esc(post.music_title || "Unknown track") + "</b> · " + esc(post.music_artist || "Unknown artist") + "</span>" +
+      (tid ? '<button class="mini-btn sp-play" data-tid="' + esc(tid) + '">Preview</button>' : "") +
+      (post.music_external_url ? ' <a class="mlabel" href="' + esc(post.music_external_url) + '" target="_blank" rel="noopener">Spotify ↗</a>' : "") +
+      '<div class="sp-slot"></div></div>';
+  }
+  // apple: open the external track link in a new tab
   if (!post.music_external_url && !post.music_title) return "";
-  const label = src === "apple" ? "Play on Apple Music" : "Play on Spotify";
+  const label = "Play on Apple Music";
   const href = post.music_external_url ? ' href="' + esc(post.music_external_url) + '" target="_blank" rel="noopener"' : "";
   const tag = post.music_external_url ? "a" : "span";
   return "<" + tag + ' class="musicbar"' + href + ">" +

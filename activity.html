@@ -17,7 +17,7 @@
   const TEXT = {
     like: "liked your post",
     comment: "commented on your post",
-    follow: "started following you",
+    follow: "joined your flock",
     slide_add: "added a photo to your slide"
   };
 
@@ -32,7 +32,7 @@
         .eq("user_id", me.id).order("created_at", { ascending: false }).limit(50);
       if (error) throw error;
       if (!notifs || !notifs.length) {
-        main.innerHTML = '<div class="section-title">Activity</div><div class="empty"><div class="big">🤍</div>Nothing here yet.<br>Likes, comments and follows will show up here.</div>';
+        main.innerHTML = '<div class="section-title">Activity</div><div class="empty"><div class="big">🤍</div>Nothing here yet.<br>Likes, comments and new flock members will show up here.</div>';
       } else {
         const actorIds = [...new Set(notifs.map(function (n) { return n.actor_id; }))];
         const { data: actors } = await sb.from("profiles").select("id,username,avatar_url").in("id", actorIds);

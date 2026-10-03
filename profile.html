@@ -31,15 +31,17 @@
 
   async function render() {
     try {
-      const [postsRes, reelsRes, followersRes, followingRes] = await Promise.all([
-        sb.from("posts").select("id,media_urls").eq("author_id", prof.id).eq("type", "post").order("created_at", { ascending: false }),
-        sb.from("posts").select("id,media_urls").eq("author_id", prof.id).eq("type", "reel").order("created_at", { ascending: false }),
+      const [postsRes, reelsRes, followersRes, followingRes, archivedRes] = await Promise.all([
+        sb.from("posts").select("id,media_urls").eq("author_id", prof.id).eq("type", "post").eq("archived", false).order("created_at", { ascending: false }),
+        sb.from("posts").select("id,media_urls").eq("author_id", prof.id).eq("type", "reel").eq("archived", false).order("created_at", { ascending: false }),
         sb.from("follows").select("*", { count: "exact", head: true }).eq("following_id", prof.id),
-        sb.from("follows").select("*", { count: "exact", head: true }).eq("follower_id", prof.id)
+        sb.from("follows").select("*", { count: "exact", head: true }).eq("follower_id", prof.id),
+        sb.from("posts").select("id,media_urls,type,created_at").eq("author_id", prof.id).eq("archived", true).order("created_at", { ascending: false })
       ]);
       if (postsRes.error) throw postsRes.error;
       const posts = postsRes.data || [];
       const reels = reelsRes.data || [];
+      const archived = archivedRes.data || [];
       const followers = followersRes.count || 0;
       const following = followingRes.count || 0;
 
@@ -85,8 +87,9 @@
       html += '<div class="tabs">' +
         '<button data-tab="posts"' + (activeTab === "posts" ? ' class="active"' : "") + ">Posts</button>" +
         '<button data-tab="slides"' + (activeTab === "slides" ? ' class="active"' : "") + ">Slides</button>" +
-        '<button data-tab="reels"' + (activeTab === "reels" ? ' class="active"' : "") + ">Reels</button></div>" +
-        '<div id="tabBody"></div>';
+        '<button data-tab="reels"' + (activeTab === "reels" ? ' class="active"' : "") + ">Reels</button>" +
+        (isSelf ? '<button data-tab="archived"' + (activeTab === "archived" ? ' class="active"' : "") + ">Archived</button>" : "") +
+        '</div><div id="tabBody"></div>';
       main.innerHTML = html;
 
       main.querySelectorAll(".tabs button").forEach(function (b) {
@@ -102,6 +105,30 @@
         body.innerHTML = reels.length
           ? '<div class="grid3">' + reels.map(function (p) { return tileHTML(p, "🎬"); }).join("") + "</div>"
           : '<div class="empty"><div class="big">🎬</div>No reels yet.</div>';
+      } else if (activeTab === "archived" && isSelf) {
+        body.innerHTML = archived.length
+          ? archived.map(function (p) {
+              const u = (p.media_urls && p.media_urls[0]) || "";
+              return '<div class="arch-row">' +
+                (u ? '<img src="' + esc(u) + '" alt="">' : "") +
+                '<div class="grow"><div class="t">' + (p.type === "reel" ? "🎬 Reel" : p.type === "story" ? "✦ Story" : "📷 Post") + '</div><div class="s">' + timeAgo(p.created_at) + "</div></div>" +
+                '<div class="ops"><button class="mini-btn" data-unarch="' + p.id + '">Restore</button>' +
+                '<button class="mini-btn" data-delarch="' + p.id + '">Delete</button></div></div>';
+            }).join("")
+          : '<div class="empty"><div class="big">📦</div>Nothing archived.<br>Use the ··· menu on your posts to archive them.</div>';
+        body.querySelectorAll("[data-unarch]").forEach(function (b) {
+          b.addEventListener("click", async function () {
+            try { await archivePost(b.dataset.unarch, false); render(); }
+            catch (e) { alert(e.message || e); }
+          });
+        });
+        body.querySelectorAll("[data-delarch]").forEach(function (b) {
+          b.addEventListener("click", async function () {
+            if (!confirm("Delete this post permanently?")) return;
+            try { await deletePost(b.dataset.delarch); render(); }
+            catch (e) { alert(e.message || e); }
+          });
+        });
       } else {
         let sh = "";
         (ownSlides || []).forEach(function (s) {

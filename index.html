@@ -36,6 +36,7 @@
       '<div class="card-head">' +
         '<a href="profile.html?u=' + esc(author.username) + '">' + avatarHTML(author.avatar_url, author.username, 38) + "</a>" +
         '<div class="who"><a href="profile.html?u=' + esc(author.username) + '">' + esc(author.username) + '</a><div class="when">' + timeAgo(post.created_at) + (post.type === "reel" ? " · reel" : "") + "</div></div>" +
+        (post.author_id === me.id ? '<button class="icon-btn post-menu-btn" data-post="' + pid + '" aria-label="Post options" style="margin-left:auto">···</button>' : "") +
       "</div>" +
       '<div class="card-media">' + media + "</div>" +
       musicBarHTML(post) +
@@ -129,7 +130,7 @@
     try {
       const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
       const { data, error } = await sb.from("posts").select("*")
-        .eq("type", "story").gte("created_at", since).order("created_at", { ascending: true }).limit(60);
+        .eq("type", "story").eq("archived", false).gte("created_at", since).order("created_at", { ascending: true }).limit(60);
       if (error) throw error;
       if (!data || !data.length) return "";
       const authorIds = [...new Set(data.map(function (s) { return s.author_id; }))];
@@ -174,7 +175,7 @@
       const { data: f } = await sb.from("follows").select("following_id").eq("follower_id", me.id);
       const ids = [me.id].concat((f || []).map(function (x) { return x.following_id; }));
       const { data: posts, error: pErr } = await sb.from("posts").select("*")
-        .in("author_id", ids).in("type", ["post", "reel"])
+        .in("author_id", ids).in("type", ["post", "reel"]).eq("archived", false)
         .order("created_at", { ascending: false }).limit(40);
       if (pErr) throw pErr;
 
@@ -241,6 +242,13 @@
       });
       main.querySelectorAll(".story-item").forEach(function (b) {
         b.addEventListener("click", function () { openStory(parseInt(b.dataset.ai, 10), 0); });
+      });
+      main.querySelectorAll(".post-menu-btn").forEach(function (b) {
+        b.addEventListener("click", function () { openPostMenu(b.dataset.post, false); });
+      });
+      document.addEventListener("postschanged", function (e) {
+        const card = document.getElementById("post-" + e.detail.id);
+        if (card && (e.detail.act === "archive" || e.detail.act === "delete")) card.remove();
       });
     } catch (e) {
       main.innerHTML = errHTML(e);

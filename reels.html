@@ -47,7 +47,7 @@
     try {
       me = await currentProfile();
       const { data: reels, error } = await sb.from("posts").select("*")
-        .eq("type", "reel").order("created_at", { ascending: false }).limit(30);
+        .eq("type", "reel").eq("archived", false).order("created_at", { ascending: false }).limit(30);
       if (error) throw error;
       if (!reels || !reels.length) {
         feed.innerHTML = '<div class="empty" style="height:80dvh;display:flex;flex-direction:column;justify-content:center"><div class="big">🎬</div>No reels yet.<br><a href="compose.html" style="color:#a6262e;font-weight:700">Make the first one</a>.</div>';
@@ -70,11 +70,11 @@
         const a = amap[r.author_id] || { username: "?", avatar_url: null };
         const url = (r.media_urls && r.media_urls[0]) || "";
         const src = r.music_source || "audius";
-        const via = src === "apple" ? "Apple Music" : src === "spotify" ? "Spotify" : "Audius";
+        const via = src === "apple" ? "Apple Music" : src === "spotify" ? "Spotify" : src === "youtube" ? "YouTube" : "Audius";
         const mlabel = "♪ " + esc(r.music_title) + " — " + esc(r.music_artist || "Unknown artist") + " · via " + via + " ♪&nbsp;&nbsp;";
         let music = "";
         if (r.music_title) {
-          if ((src === "spotify" || src === "apple") && r.music_external_url) {
+          if ((src === "spotify" || src === "apple" || src === "youtube") && r.music_external_url) {
             music = '<div class="marquee"><a href="' + esc(r.music_external_url) + '" target="_blank" rel="noopener" style="color:#fff;pointer-events:auto"><span>' + mlabel + "</span></a></div>";
           } else {
             music = '<div class="marquee"><span>' + mlabel + "</span></div>";
@@ -88,7 +88,8 @@
               '<button class="reel-like' + (likedSet[r.id] ? " liked" : "") + '" data-liked="' + (likedSet[r.id] ? "1" : "0") + '" data-pid="' + r.id + '">' + SVG_LIKE + '<span class="lc">' + (likeCount[r.id] || 0) + "</span></button>" +
             "</div>" +
             '<div class="reel-meta">' +
-              '<div class="rauthor"><a href="profile.html?u=' + esc(a.username) + '" style="color:#fff">@' + esc(a.username) + "</a></div>" +
+              '<div class="rauthor"><a href="profile.html?u=' + esc(a.username) + '" style="color:#fff">@' + esc(a.username) + "</a>" +
+              (r.author_id === me.id ? ' <button class="post-menu-btn" data-pid="' + r.id + '" aria-label="Post options" style="background:none;border:none;color:#fff;font-size:18px">···</button>' : "") + "</div>" +
               (r.caption ? '<div class="rcap">' + esc(r.caption) + "</div>" : "") +
               music +
             "</div>" +
@@ -117,6 +118,13 @@
       });
       feed.querySelectorAll(".reel-like").forEach(function (b) {
         b.addEventListener("click", function (ev) { ev.stopPropagation(); toggleLike(b.dataset.pid, b); });
+      });
+      feed.querySelectorAll(".post-menu-btn").forEach(function (b) {
+        b.addEventListener("click", function (ev) { ev.stopPropagation(); openPostMenu(b.dataset.pid, false); });
+      });
+      document.addEventListener("postschanged", function (e) {
+        const sec = feed.querySelector('.reel[data-pid="' + e.detail.id + '"]');
+        if (sec && (e.detail.act === "archive" || e.detail.act === "delete")) sec.remove();
       });
     } catch (e) {
       feed.innerHTML = errHTML(e);
