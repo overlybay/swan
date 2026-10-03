@@ -10,27 +10,37 @@
 <script src="app.js"></script>
 </head>
 <body>
-<main class="wrap">
-  <div class="section-title">New post</div>
+<main class="wrap compose">
   <div class="pad">
-    <div class="seg" id="typeSeg">
-      <button data-type="post" class="active">Post</button>
-      <button data-type="reel">Reel</button>
-      <button data-type="story">Story</button>
-    </div>
-    <div class="field">
-      <label>Photos / video</label>
-      <input type="file" id="files" accept="image/*,video/*" multiple>
-    </div>
-    <div class="thumb-row" id="thumbs"></div>
-    <div class="field">
-      <label>Caption</label>
-      <textarea id="caption" maxlength="500" placeholder="Say something..."></textarea>
+    <div class="seg modern" id="typeSeg">
+      <button data-type="post" class="active">📷&nbsp;Post</button>
+      <button data-type="reel">🎬&nbsp;Reel</button>
+      <button data-type="story">✦&nbsp;Story</button>
     </div>
   </div>
 
-  <div class="section-title">Music (optional)</div>
   <div class="pad">
+    <div class="ccard">
+      <div class="chead">Media</div>
+      <label for="files" class="media-pick">
+        <span class="mp-icon">＋</span>
+        <span class="mp-text">Tap to add photos or video</span>
+      </label>
+      <input type="file" id="files" accept="image/*,video/*" multiple class="hidden">
+      <div class="thumb-row" id="thumbs"></div>
+    </div>
+  </div>
+
+  <div class="pad">
+    <div class="ccard">
+      <div class="chead">Caption</div>
+      <textarea id="caption" maxlength="500" placeholder="Write a caption..."></textarea>
+    </div>
+  </div>
+
+  <div class="pad">
+    <div class="ccard">
+      <div class="chead">♪ Music <span class="csub">optional</span></div>
     <div class="seg" id="musicTabs">
       <button data-mtab="audius" class="active">Audius</button>
       <button data-mtab="ext">Spotify / Apple Music</button>
@@ -55,19 +65,22 @@
       <div class="field"><label>Artist</label><input id="xartist" placeholder="Artist" maxlength="120"></div>
       <button class="btn btn-outline btn-sm" id="xattach" style="width:100%">Attach this track</button>
       <div id="xsel" style="margin-top:8px"></div>
+      </div>
     </div>
   </div>
 
-  <div class="section-title">Add to slide (optional)</div>
   <div class="pad">
+    <div class="ccard">
+      <div class="chead">Slide <span class="csub">optional</span></div>
     <select id="slideSel"><option value="">Don't add to a slide</option></select>
     <div id="newSlideRow" class="hidden" style="margin-top:8px">
       <input id="newSlideTitle" placeholder="New slide title" maxlength="80">
     </div>
+    </div>
   </div>
 
-  <div class="pad">
-    <button class="btn" id="publish">Publish</button>
+  <div class="sharebar">
+    <button class="btn-share" id="publish">Share</button>
     <div id="perr" style="margin-top:10px"></div>
   </div>
 </main>
