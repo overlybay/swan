@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Swan — Log in or sign up</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+<div class="auth-wrap">
+  <div class="auth-logo">
+    <img src="assets/swan-logo.webp" alt="Swan logo">
+    <h1>Swan</h1>
+  </div>
+  <div id="err"></div>
+  <div id="loginBox">
+    <div class="field"><label>Email</label><input id="liEmail" type="email" autocomplete="email" placeholder="you@example.com"></div>
+    <div class="field"><label>Password</label><input id="liPass" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+    <button class="btn" id="loginBtn">Log in</button>
+    <div class="auth-switch">No account yet? <button id="toSignup">Sign up</button></div>
+  </div>
+  <div id="signupBox" class="hidden">
+    <div class="field"><label>Username</label><input id="suUser" type="text" placeholder="yourname" maxlength="20"></div>
+    <div class="field"><label>Email</label><input id="suEmail" type="email" autocomplete="email" placeholder="you@example.com"></div>
+    <div class="field"><label>Password</label><input id="suPass" type="password" autocomplete="new-password" placeholder="At least 6 characters"></div>
+    <button class="btn" id="signupBtn">Sign up</button>
+    <div class="auth-switch">Have an account? <button id="toLogin">Log in</button></div>
+  </div>
+</div>
+<script>
+(function () {
+  const errBox = document.getElementById("err");
+  function fail(e) {
+    errBox.innerHTML = '<div class="error-box">' + esc(e && e.message ? e.message : e) + "</div>";
+  }
+  // Already logged in? go home.
+  sb.auth.getSession().then(function (r) {
+    if (r.data && r.data.session) window.location.href = "index.html";
+  });
+
+  const loginBox = document.getElementById("loginBox");
+  const signupBox = document.getElementById("signupBox");
+  document.getElementById("toSignup").onclick = function () { loginBox.classList.add("hidden"); signupBox.classList.remove("hidden"); errBox.innerHTML = ""; };
+  document.getElementById("toLogin").onclick = function () { signupBox.classList.add("hidden"); loginBox.classList.remove("hidden"); errBox.innerHTML = ""; };
+
+  document.getElementById("loginBtn").onclick = async function () {
+    errBox.innerHTML = "";
+    const email = document.getElementById("liEmail").value.trim();
+    const password = document.getElementById("liPass").value;
+    if (!email || !password) { fail("Enter your email and password."); return; }
+    try {
+      const { error } = await sb.auth.signInWithPassword({ email: email, password: password });
+      if (error) throw error;
+      window.location.href = "index.html";
+    } catch (e) { fail(e); }
+  };
+
+  document.getElementById("signupBtn").onclick = async function () {
+    errBox.innerHTML = "";
+    let username = document.getElementById("suUser").value.trim().toLowerCase();
+    const email = document.getElementById("suEmail").value.trim();
+    const password = document.getElementById("suPass").value;
+    if (!/^[a-z0-9_]{3,20}$/.test(username)) { fail("Username must be 3–20 characters: letters, numbers, underscores."); return; }
+    if (!email || password.length < 6) { fail("Enter a valid email and a password of at least 6 characters."); return; }
+    try {
+      const { data, error } = await sb.auth.signUp({ email: email, password: password });
+      if (error) throw error;
+      let uid = data.user && data.user.id;
+      if (!uid) {
+        const s = await sb.auth.getSession();
+        uid = s.data.session && s.data.session.user.id;
+      }
+      if (!uid) {
+        errBox.innerHTML = '<div class="error-box">Account created! Check your email to confirm it, then log in.</div>';
+        return;
+      }
+      const { error: pErr } = await sb.from("profiles").insert({ id: uid, username: username, display_name: username });
+      if (pErr) {
+        if (pErr.code === "23505") throw new Error("That username is taken — try another.");
+        throw pErr;
+      }
+      window.location.href = "index.html";
+    } catch (e) { fail(e); }
+  };
+})();
+</script>
+</body>
+</html>

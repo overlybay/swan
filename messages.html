@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Swan — Messages</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+<main class="wrap" id="main"></main>
+<script>
+(function () {
+  const main = document.getElementById("main");
+  const params = new URLSearchParams(window.location.search);
+  const convId = params.get("c");
+  let me = null;
+  let channel = null;
+
+  function msgHTML(m) {
+    const mine = m.sender_id === me.id;
+    return '<div class="msg ' + (mine ? "me" : "them") + '">' + esc(m.body) + "</div>";
+  }
+
+  async function showInbox() {
+    try {
+      const { data: memberships, error } = await sb.from("conversation_members")
+        .select("conversation_id").eq("user_id", me.id);
+      if (error) throw error;
+      const ids = (memberships || []).map(function (m) { return m.conversation_id; });
+      if (!ids.length) {
+        main.innerHTML = '<div class="section-title">Messages</div><div class="empty"><div class="big">💬</div>No conversations yet.<br>Visit someone\'s profile and tap <b>Message</b>.</div>';
+        return;
+      }
+      // other members per conversation
+      const { data: members } = await sb.from("conversation_members").select("conversation_id,user_id").in("conversation_id", ids);
+      const otherByConv = {};
+      (members || []).forEach(function (m) {
+        if (m.user_id !== me.id) otherByConv[m.conversation_id] = m.user_id;
+      });
+      const otherIds = [...new Set(Object.values(otherByConv))];
+      let pmap = {};
+      if (otherIds.length) {
+        const { data: profs } = await sb.from("profiles").select("id,username,display_name,avatar_url").in("id", otherIds);
+        (profs || []).forEach(function (p) { pmap[p.id] = p; });
+      }
+      const { data: lastMsgs } = await sb.from("messages").select("conversation_id,body,created_at")
+        .in("conversation_id", ids).order("created_at", { ascending: false }).limit(ids.length * 5);
+      const lastByConv = {};
+      (lastMsgs || []).forEach(function (m) {
+        if (!lastByConv[m.conversation_id]) lastByConv[m.conversation_id] = m;
+      });
+
+      let html = '<div class="section-title">Messages</div>';
+      ids.forEach(function (cid) {
+        const other = pmap[otherByConv[cid]];
+        if (!other) return;
+        const last = lastByConv[cid];
+        html += '<a class="row-item" href="messages.html?c=' + cid + '">' +
+          avatarHTML(other.avatar_url, other.username, 48) +
+          '<div class="grow"><div class="title">' + esc(other.display_name || other.username) + '</div>' +
+          '<div class="sub">' + (last ? esc(last.body) + " · " + timeAgo(last.created_at) : "Say hi 👋") + "</div></div></a>";
+      });
+      main.innerHTML = html;
+    } catch (e) { main.innerHTML = errHTML(e); }
+  }
+
+  async function showThread() {
+    try {
+      // verify membership
+      const { data: mem, error: memErr } = await sb.from("conversation_members")
+        .select("user_id").eq("conversation_id", convId);
+      if (memErr) throw memErr;
+      const memberIds = (mem || []).map(function (m) { return m.user_id; });
+      if (!memberIds.includes(me.id)) { main.innerHTML = errHTML("You are not a member of this conversation."); return; }
+      const otherId = memberIds.find(function (id) { return id !== me.id; });
+      let other = { username: "?", display_name: "?", avatar_url: null };
+      if (otherId) {
+        const { data: op } = await sb.from("profiles").select("username,display_name,avatar_url").eq("id", otherId).single();
+        if (op) other = op;
+      }
+
+      main.innerHTML =
+        '<div class="thread-head"><a class="icon-btn" href="messages.html" aria-label="Back">‹</a>' +
+        avatarHTML(other.avatar_url, other.username, 36) +
+        '<div class="grow"><a href="profile.html?u=' + esc(other.username) + '">' + esc(other.display_name || other.username) + "</a></div></div>" +
+        '<div class="thread"><div class="msgs" id="msgs"></div>' +
+        '<div class="sendbar"><input id="sendInput" placeholder="Message..." maxlength="1000" autocomplete="off">' +
+        '<button class="btn" id="sendBtn">Send</button></div></div>';
+
+      const msgsEl = document.getElementById("msgs");
+      const seen = {};
+      function append(m) {
+        if (seen[m.id]) return;
+        seen[m.id] = 1;
+        msgsEl.insertAdjacentHTML("beforeend", msgHTML(m));
+        msgsEl.scrollTop = msgsEl.scrollHeight;
+      }
+
+      const { data: msgs, error: mErr } = await sb.from("messages").select("*")
+        .eq("conversation_id", convId).order("created_at", { ascending: true }).limit(200);
+      if (mErr) throw mErr;
+      (msgs || []).forEach(append);
+
+      // realtime: new messages in this conversation
+      channel = sb.channel("conv-" + convId)
+        .on("postgres_changes",
+          { event: "INSERT", schema: "public", table: "messages", filter: "conversation_id=eq." + convId },
+          function (payload) { append(payload.new); })
+        .subscribe();
+
+      async function send() {
+        const input = document.getElementById("sendInput");
+        const body = input.value.trim();
+        if (!body) return;
+        input.value = "";
+        try {
+          const { data, error } = await sb.from("messages")
+            .insert({ conversation_id: convId, sender_id: me.id, body: body }).select().single();
+          if (error) throw error;
+          append(data);
+        } catch (e) { alert("Could not send: " + (e.message || e)); }
+      }
+      document.getElementById("sendBtn").addEventListener("click", send);
+      document.getElementById("sendInput").addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter") send();
+      });
+    } catch (e) { main.innerHTML = errHTML(e); }
+  }
+
+  (async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+    topBar({ compose: false });
+    bottomNav("messages");
+    me = await currentProfile();
+    if (!me) { main.innerHTML = errHTML("No profile found."); return; }
+    if (convId) showThread(); else showInbox();
+  })();
+
+  window.addEventListener("beforeunload", function () {
+    if (channel) sb.removeChannel(channel);
+  });
+})();
+</script>
+</body>
+</html>

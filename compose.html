@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Swan — New post</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+<main class="wrap">
+  <div class="section-title">New post</div>
+  <div class="pad">
+    <div class="seg" id="typeSeg">
+      <button data-type="post" class="active">Post</button>
+      <button data-type="reel">Reel</button>
+      <button data-type="story">Story</button>
+    </div>
+    <div class="field">
+      <label>Photos / video</label>
+      <input type="file" id="files" accept="image/*,video/*" multiple>
+    </div>
+    <div class="thumb-row" id="thumbs"></div>
+    <div class="field">
+      <label>Caption</label>
+      <textarea id="caption" maxlength="500" placeholder="Say something..."></textarea>
+    </div>
+  </div>
+
+  <div class="section-title">Music (optional)</div>
+  <div class="pad">
+    <div class="seg" id="musicTabs">
+      <button data-mtab="audius" class="active">Audius</button>
+      <button data-mtab="ext">Spotify / Apple Music</button>
+    </div>
+
+    <div id="mtab-audius">
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <input id="aq" placeholder="Search Audius tracks..." autocomplete="off" style="flex:1">
+        <button class="btn btn-sm" id="asearch" style="width:auto">Search</button>
+      </div>
+      <div id="aresults"></div>
+      <div id="asel"></div>
+    </div>
+
+    <div id="mtab-ext" class="hidden">
+      <div class="seg" id="srcSeg">
+        <button data-src="spotify" class="active">Spotify</button>
+        <button data-src="apple">Apple Music</button>
+      </div>
+      <div class="field"><label>Track link (or leave blank to link a search)</label><input id="xurl" placeholder="Paste track link here" autocomplete="off"></div>
+      <div class="field"><label>Song title</label><input id="xtitle" placeholder="Song title" maxlength="120"></div>
+      <div class="field"><label>Artist</label><input id="xartist" placeholder="Artist" maxlength="120"></div>
+      <button class="btn btn-outline btn-sm" id="xattach" style="width:100%">Attach this track</button>
+      <div id="xsel" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <div class="section-title">Add to slide (optional)</div>
+  <div class="pad">
+    <select id="slideSel"><option value="">Don't add to a slide</option></select>
+    <div id="newSlideRow" class="hidden" style="margin-top:8px">
+      <input id="newSlideTitle" placeholder="New slide title" maxlength="80">
+    </div>
+  </div>
+
+  <div class="pad">
+    <button class="btn" id="publish">Publish</button>
+    <div id="perr" style="margin-top:10px"></div>
+  </div>
+</main>
+<script>
+(function () {
+  let me = null;
+  let postType = "post";
+  let music = null; // {source:'audius',id,title,artist,stream} | {source:'spotify'|'apple',title,artist,url}
+  let extSource = "spotify";
+  let files = [];
+
+  function segWire(id, cb) {
+    const seg = document.getElementById(id);
+    seg.querySelectorAll("button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        seg.querySelectorAll("button").forEach(function (x) { x.classList.remove("active"); });
+        b.classList.add("active");
+        cb(b);
+      });
+    });
+  }
+
+  segWire("typeSeg", function (b) { postType = b.dataset.type; });
+  segWire("musicTabs", function (b) {
+    document.getElementById("mtab-audius").classList.toggle("hidden", b.dataset.mtab !== "audius");
+    document.getElementById("mtab-ext").classList.toggle("hidden", b.dataset.mtab !== "ext");
+  });
+  segWire("srcSeg", function (b) { extSource = b.dataset.src; });
+
+  // file previews
+  const fileInput = document.getElementById("files");
+  const thumbs = document.getElementById("thumbs");
+  fileInput.addEventListener("change", function () {
+    files = Array.from(fileInput.files || []);
+    thumbs.innerHTML = "";
+    files.forEach(function (f) {
+      const url = URL.createObjectURL(f);
+      const el = f.type.startsWith("video") ? document.createElement("video") : document.createElement("img");
+      el.src = url; el.muted = true;
+      thumbs.appendChild(el);
+    });
+  });
+
+  /* ---------- Audius search ---------- */
+  const aresults = document.getElementById("aresults");
+  const asel = document.getElementById("asel");
+  function renderAudiusSel() {
+    if (music && music.source === "audius") {
+      asel.innerHTML = '<div class="track-row selected"><div class="grow"><div class="tt">' + esc(music.title) + '</div><div class="ta">' + esc(music.artist) + ' · Audius</div></div><button class="mini-btn" id="aclear">Remove</button></div>';
+      document.getElementById("aclear").onclick = function () { music = null; renderAudiusSel(); };
+    } else { asel.innerHTML = ""; }
+  }
+  async function audiusSearch() {
+    const q = document.getElementById("aq").value.trim();
+    if (!q) return;
+    aresults.innerHTML = '<div class="sub" style="color:#a89c9c">Searching...</div>';
+    try {
+      const r = await fetch(AUDIUS_HOST + "/v1/tracks/search?query=" + encodeURIComponent(q) + "&app_name=" + encodeURIComponent(APP_NAME));
+      if (!r.ok) throw new Error("Audius search failed (" + r.status + ")");
+      const j = await r.json();
+      const tracks = (j && j.data) || [];
+      if (!tracks.length) { aresults.innerHTML = '<div class="sub" style="color:#a89c9c">No tracks found.</div>'; return; }
+      let html = "";
+      tracks.slice(0, 12).forEach(function (t, i) {
+        const art = t.artwork && (t.artwork["150x150"] || t.artwork["480x480"] || t.artwork["1000x1000"]);
+        const artist = (t.user && (t.user.name || t.user.handle)) || "Unknown artist";
+        html += '<button class="track-row" data-i="' + i + '" style="width:100%;text-align:left;color:#f5f0f0">' +
+          (art ? '<img src="' + esc(art) + '" alt="">' : "") +
+          '<div class="grow"><div class="tt">' + esc(t.title || "Untitled") + '</div><div class="ta">' + esc(artist) + "</div></div></button>";
+      });
+      aresults.innerHTML = html;
+      aresults.querySelectorAll(".track-row").forEach(function (b) {
+        b.addEventListener("click", function () {
+          const t = tracks[parseInt(b.dataset.i, 10)];
+          const artist = (t.user && (t.user.name || t.user.handle)) || "Unknown artist";
+          music = {
+            source: "audius",
+            id: String(t.id),
+            title: t.title || "Untitled",
+            artist: artist,
+            stream: AUDIUS_HOST + "/v1/tracks/" + t.id + "/stream?app_name=" + encodeURIComponent(APP_NAME)
+          };
+          renderAudiusSel();
+          aresults.innerHTML = "";
+        });
+      });
+    } catch (e) {
+      aresults.innerHTML = '<div class="error-box">Music search failed: ' + esc(e.message || e) + "</div>";
+    }
+  }
+  document.getElementById("asearch").addEventListener("click", audiusSearch);
+  document.getElementById("aq").addEventListener("keydown", function (ev) { if (ev.key === "Enter") audiusSearch(); });
+
+  /* ---------- Spotify / Apple Music attach ---------- */
+  const xsel = document.getElementById("xsel");
+  function renderExtSel() {
+    if (music && (music.source === "spotify" || music.source === "apple")) {
+      const lbl = music.source === "apple" ? "Apple Music" : "Spotify";
+      xsel.innerHTML = '<div class="track-row selected"><div class="grow"><div class="tt">' + esc(music.title) + '</div><div class="ta">' + esc(music.artist) + " · " + lbl + '</div></div><button class="mini-btn" id="xclear">Remove</button></div>';
+      document.getElementById("xclear").onclick = function () { music = null; renderExtSel(); };
+    } else { xsel.innerHTML = ""; }
+  }
+  document.getElementById("xattach").addEventListener("click", function () {
+    const url = document.getElementById("xurl").value.trim();
+    const title = document.getElementById("xtitle").value.trim();
+    const artist = document.getElementById("xartist").value.trim();
+    if (!title && !url) { alert("Add a song title or paste a track link."); return; }
+    let finalUrl = url;
+    if (!finalUrl) {
+      const q = encodeURIComponent((title + " " + artist).trim());
+      finalUrl = extSource === "apple"
+        ? "https://music.apple.com/us/search?term=" + q
+        : "https://open.spotify.com/search/" + q;
+    }
+    music = { source: extSource, title: title || "Shared track", artist: artist || "Unknown artist", url: finalUrl };
+    renderExtSel();
+  });
+
+  /* ---------- slides ---------- */
+  const slideSel = document.getElementById("slideSel");
+  const newSlideRow = document.getElementById("newSlideRow");
+  slideSel.addEventListener("change", function () {
+    newSlideRow.classList.toggle("hidden", slideSel.value !== "__new");
+  });
+
+  async function loadSlides() {
+    try {
+      const { data } = await sb.from("slides").select("id,title").eq("owner_id", me.id).order("created_at", { ascending: false });
+      (data || []).forEach(function (s) {
+        const o = document.createElement("option");
+        o.value = s.id; o.textContent = s.title;
+        slideSel.appendChild(o);
+      });
+      const o = document.createElement("option");
+      o.value = "__new"; o.textContent = "＋ New slide...";
+      slideSel.appendChild(o);
+    } catch (e) { /* non-fatal */ }
+  }
+
+  /* ---------- publish ---------- */
+  const perr = document.getElementById("perr");
+  document.getElementById("publish").addEventListener("click", async function () {
+    perr.innerHTML = "";
+    if (!files.length) { perr.innerHTML = errHTML("Pick at least one photo or video first."); return; }
+    const btn = this;
+    btn.disabled = true;
+    btn.textContent = "Publishing...";
+    try {
+      const caption = document.getElementById("caption").value.trim();
+      const useFiles = postType === "post" ? files : files.slice(0, 1);
+      const mediaUrls = [];
+      for (const f of useFiles) {
+        btn.textContent = "Uploading (" + (mediaUrls.length + 1) + "/" + useFiles.length + ")...";
+        mediaUrls.push(await uploadMedia(me.id, f));
+      }
+      const row = {
+        author_id: me.id,
+        type: postType,
+        caption: caption || null,
+        media_urls: mediaUrls,
+        music_track_id: music && music.source === "audius" ? music.id : null,
+        music_title: music ? music.title : null,
+        music_artist: music ? music.artist : null,
+        music_stream_url: music && music.source === "audius" ? music.stream : null,
+        music_source: music ? music.source : "audius",
+        music_external_url: music && (music.source === "spotify" || music.source === "apple") ? music.url : null
+      };
+      btn.textContent = "Publishing...";
+      const { data: post, error: pErr } = await sb.from("posts").insert(row).select().single();
+      if (pErr) throw pErr;
+
+      let slideId = slideSel.value;
+      if (slideId === "__new") {
+        const title = document.getElementById("newSlideTitle").value.trim();
+        if (!title) throw new Error("Give your new slide a title.");
+        const { data: s, error: sErr } = await sb.from("slides").insert({ owner_id: me.id, title: title }).select().single();
+        if (sErr) throw sErr;
+        slideId = s.id;
+      }
+      if (slideId) {
+        for (const u of mediaUrls) {
+          const { error: iErr } = await sb.from("slide_items").insert({ slide_id: slideId, added_by: me.id, media_url: u, caption: caption || null });
+          if (iErr) throw iErr;
+        }
+      }
+      window.location.href = slideId && slideSel.value === "__new" ? "slide.html?id=" + slideId : "index.html";
+    } catch (e) {
+      perr.innerHTML = errHTML(e);
+      btn.disabled = false;
+      btn.textContent = "Publish";
+    }
+  });
+
+  (async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+    topBar({ compose: false });
+    bottomNav(null);
+    me = await currentProfile();
+    if (!me) { perr.innerHTML = errHTML("No profile found."); return; }
+    loadSlides();
+  })();
+})();
+</script>
+</body>
+</html>

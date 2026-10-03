@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Swan — Slide</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+<main class="wrap" id="main"></main>
+<script>
+(function () {
+  const main = document.getElementById("main");
+  const slideId = new URLSearchParams(window.location.search).get("id");
+  let me = null;
+  let slide = null;
+  let owner = null;
+
+  async function load() {
+    try {
+      if (!slideId) { main.innerHTML = errHTML("No slide specified."); return; }
+      const { data: s, error: sErr } = await sb.from("slides").select("*").eq("id", slideId).single();
+      if (sErr) throw new Error("Slide not found.");
+      slide = s;
+      const { data: o } = await sb.from("profiles").select("id,username,avatar_url").eq("id", slide.owner_id).single();
+      owner = o || { username: "?", avatar_url: null };
+
+      const { data: items, error: iErr } = await sb.from("slide_items").select("*")
+        .eq("slide_id", slideId).order("created_at", { ascending: true });
+      if (iErr) throw iErr;
+
+      const cids = [...new Set((items || []).map(function (i) { return i.added_by; }))];
+      let cmap = {};
+      if (cids.length) {
+        const { data: cs } = await sb.from("profiles").select("id,username").in("id", cids);
+        (cs || []).forEach(function (c) { cmap[c.id] = c; });
+      }
+
+      const isOwner = me.id === slide.owner_id;
+      let canAdd = isOwner;
+      if (!isOwner) {
+        const { data: f } = await sb.from("follows").select("follower_id")
+          .eq("follower_id", me.id).eq("following_id", slide.owner_id).maybeSingle();
+        canAdd = !!f;
+      }
+
+      let html = '<div class="pad">' +
+        '<a href="profile.html?u=' + esc(owner.username) + '" style="color:#a89c9c;font-size:13px">‹ back to @' + esc(owner.username) + "</a>" +
+        '<h2 style="margin:8px 0 2px">📑 ' + esc(slide.title) + "</h2>" +
+        '<div style="color:#a89c9c;font-size:13px;margin-bottom:12px">by ' + esc(owner.username) +
+        " · " + (items || []).length + " photo" + ((items || []).length === 1 ? "" : "s") + "</div>";
+
+      if (canAdd) {
+        html += '<div class="field"><label>Add a photo to this slide</label><input type="file" id="addFile" accept="image/*"></div>' +
+          '<div class="field"><input id="addCap" placeholder="Caption (optional)" maxlength="140"></div>' +
+          '<button class="btn btn-sm" id="addBtn" style="width:100%">Add photo</button>' +
+          '<div id="addErr" style="margin-top:8px"></div>';
+      } else {
+        html += '<div class="error-box">Follow @' + esc(owner.username) + " to add your photos to this slide.</div>";
+      }
+      html += "</div>";
+
+      if (!items || !items.length) {
+        html += '<div class="empty"><div class="big">🖼️</div>This slide is empty.<br>' + (canAdd ? "Add the first photo above!" : "") + "</div>";
+      } else {
+        html += '<div class="grid3">';
+        items.forEach(function (it) {
+          const c = cmap[it.added_by] || { username: "?" };
+          html += '<a href="profile.html?u=' + esc(c.username) + '" title="added by ' + esc(c.username) + '">' +
+            '<img src="' + esc(it.media_url) + '" alt="' + esc(it.caption || "") + '" loading="lazy">' +
+            '<span class="reel-tag" style="left:6px;right:auto;font-size:11px;background:rgba(0,0,0,0.55);padding:2px 6px;border-radius:8px">+' + esc(c.username) + "</span></a>";
+        });
+        html += "</div>";
+      }
+      main.innerHTML = html;
+
+      const addBtn = document.getElementById("addBtn");
+      if (addBtn) addBtn.addEventListener("click", async function () {
+        const fi = document.getElementById("addFile");
+        const errBox = document.getElementById("addErr");
+        errBox.innerHTML = "";
+        if (!fi.files || !fi.files.length) { errBox.innerHTML = errHTML("Pick a photo first."); return; }
+        addBtn.disabled = true;
+        addBtn.textContent = "Adding...";
+        try {
+          const url = await uploadMedia(me.id, fi.files[0]);
+          const cap = document.getElementById("addCap").value.trim();
+          const { error } = await sb.from("slide_items").insert({
+            slide_id: slideId, added_by: me.id, media_url: url, caption: cap || null
+          });
+          if (error) throw error;
+          load();
+        } catch (e) {
+          errBox.innerHTML = errHTML(e);
+          addBtn.disabled = false;
+          addBtn.textContent = "Add photo";
+        }
+      });
+      document.title = "Swan — " + slide.title;
+    } catch (e) { main.innerHTML = errHTML(e); }
+  }
+
+  (async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+    topBar({});
+    bottomNav(null);
+    me = await currentProfile();
+    if (!me) { main.innerHTML = errHTML("No profile found."); return; }
+    load();
+  })();
+})();
+</script>
+</body>
+</html>

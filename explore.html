@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Swan — Explore</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+<main class="wrap">
+  <div class="searchbar">
+    <input id="q" placeholder="Search people..." maxlength="40" autocomplete="off">
+  </div>
+  <div id="results"></div>
+  <div class="section-title">Discover</div>
+  <div id="grid"></div>
+</main>
+<script>
+(function () {
+  const q = document.getElementById("q");
+  const results = document.getElementById("results");
+  const grid = document.getElementById("grid");
+
+  q.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") doSearch(q.value.trim());
+  });
+  // Search as you type (debounced)
+  let t = null;
+  q.addEventListener("input", function () {
+    clearTimeout(t);
+    t = setTimeout(function () { doSearch(q.value.trim()); }, 400);
+  });
+
+  async function doSearch(term) {
+    if (!term) { results.innerHTML = ""; return; }
+    try {
+      const { data, error } = await sb.from("profiles").select("id,username,display_name,avatar_url")
+        .ilike("username", "%" + term.replace(/[%_]/g, "") + "%").limit(20);
+      if (error) throw error;
+      if (!data || !data.length) {
+        results.innerHTML = '<div class="empty">No people found for "' + esc(term) + '".</div>';
+        return;
+      }
+      let html = "";
+      data.forEach(function (p) {
+        html += '<a class="row-item" href="profile.html?u=' + esc(p.username) + '">' +
+          avatarHTML(p.avatar_url, p.username, 44) +
+          '<div class="grow"><div class="title">' + esc(p.username) + '</div><div class="sub">' + esc(p.display_name || "") + "</div></div></a>";
+      });
+      results.innerHTML = html;
+    } catch (e) { results.innerHTML = errHTML(e); }
+  }
+
+  async function loadDiscover() {
+    try {
+      const { data, error } = await sb.from("posts").select("id,media_urls,type,author_id")
+        .eq("type", "post").order("created_at", { ascending: false }).limit(30);
+      if (error) throw error;
+      const items = (data || []).filter(function (p) { return p.media_urls && p.media_urls.length; });
+      if (!items.length) {
+        grid.innerHTML = '<div class="empty"><div class="big">🔍</div>Nothing to discover yet.<br>Be the first to <a href="compose.html" style="color:#a6262e;font-weight:700">post something</a>.</div>';
+        return;
+      }
+      let html = '<div class="grid3">';
+      items.forEach(function (p) {
+        const u = p.media_urls[0];
+        const inner = isVideo(u)
+          ? '<video src="' + esc(u) + '" preload="metadata" muted playsinline></video>'
+          : '<img src="' + esc(u) + '" alt="post" loading="lazy">';
+        html += '<a href="profile.html?u=" data-pid="' + p.id + '">' + inner + "</a>";
+      });
+      html += "</div>";
+      grid.innerHTML = html;
+      // Discover tiles link to the author's profile (no single-post page in v1)
+      const authorIds = [...new Set(items.map(function (p) { return p.author_id; }))];
+      const { data: authors } = await sb.from("profiles").select("id,username").in("id", authorIds);
+      const amap = {};
+      (authors || []).forEach(function (a) { amap[a.id] = a.username; });
+      grid.querySelectorAll("a[data-pid]").forEach(function (a) {
+        const pid = a.dataset.pid;
+        const item = items.find(function (p) { return p.id === pid; });
+        if (item && amap[item.author_id]) a.href = "profile.html?u=" + encodeURIComponent(amap[item.author_id]);
+      });
+    } catch (e) { grid.innerHTML = errHTML(e); }
+  }
+
+  (async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+    topBar({});
+    bottomNav("explore");
+    loadDiscover();
+  })();
+})();
+</script>
+</body>
+</html>

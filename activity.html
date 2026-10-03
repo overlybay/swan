@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Swan — Activity</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+<main class="wrap" id="main"></main>
+<script>
+(function () {
+  const main = document.getElementById("main");
+  const TEXT = {
+    like: "liked your post",
+    comment: "commented on your post",
+    follow: "started following you",
+    slide_add: "added a photo to your slide"
+  };
+
+  (async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+    topBar({});
+    bottomNav(null);
+    try {
+      const me = await currentProfile();
+      const { data: notifs, error } = await sb.from("notifications").select("*")
+        .eq("user_id", me.id).order("created_at", { ascending: false }).limit(50);
+      if (error) throw error;
+      if (!notifs || !notifs.length) {
+        main.innerHTML = '<div class="section-title">Activity</div><div class="empty"><div class="big">🤍</div>Nothing here yet.<br>Likes, comments and follows will show up here.</div>';
+      } else {
+        const actorIds = [...new Set(notifs.map(function (n) { return n.actor_id; }))];
+        const { data: actors } = await sb.from("profiles").select("id,username,avatar_url").in("id", actorIds);
+        const amap = {};
+        (actors || []).forEach(function (a) { amap[a.id] = a; });
+        let html = '<div class="section-title">Activity</div>';
+        notifs.forEach(function (n) {
+          const a = amap[n.actor_id] || { username: "?", avatar_url: null };
+          html += '<a class="row-item" href="profile.html?u=' + esc(a.username) + '">' +
+            avatarHTML(a.avatar_url, a.username, 44) +
+            '<div class="notif grow"><div class="ntext"><b>' + esc(a.username) + "</b> " + esc(TEXT[n.type] || n.type) +
+            '<div class="ntime">' + timeAgo(n.created_at) + "</div></div></div>" +
+            (n.read ? "" : '<span class="unread-dot"></span>') + "</a>";
+        });
+        main.innerHTML = html;
+      }
+      // mark all read on open
+      await sb.from("notifications").update({ read: true }).eq("user_id", me.id).eq("read", false);
+    } catch (e) { main.innerHTML = errHTML(e); }
+  })();
+})();
+</script>
+</body>
+</html>

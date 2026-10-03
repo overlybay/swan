@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Swan — Profile</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+<main class="wrap" id="main"></main>
+<script>
+(function () {
+  const main = document.getElementById("main");
+  const params = new URLSearchParams(window.location.search);
+  const uname = params.get("u");
+  let me = null;
+  let prof = null;
+  let isSelf = false;
+  let activeTab = "posts";
+
+  function tileHTML(p, tag) {
+    const u = (p.media_urls && p.media_urls[0]) || "";
+    const inner = isVideo(u)
+      ? '<video src="' + esc(u) + '" preload="metadata" muted playsinline></video>'
+      : '<img src="' + esc(u) + '" alt="" loading="lazy">';
+    return '<a href="profile.html?u=' + esc(prof.username) + '">' + inner + (tag ? '<span class="reel-tag">' + tag + "</span>" : "") + "</a>";
+  }
+
+  async function render() {
+    try {
+      const [postsRes, reelsRes, followersRes, followingRes] = await Promise.all([
+        sb.from("posts").select("id,media_urls").eq("author_id", prof.id).eq("type", "post").order("created_at", { ascending: false }),
+        sb.from("posts").select("id,media_urls").eq("author_id", prof.id).eq("type", "reel").order("created_at", { ascending: false }),
+        sb.from("follows").select("*", { count: "exact", head: true }).eq("following_id", prof.id),
+        sb.from("follows").select("*", { count: "exact", head: true }).eq("follower_id", prof.id)
+      ]);
+      if (postsRes.error) throw postsRes.error;
+      const posts = postsRes.data || [];
+      const reels = reelsRes.data || [];
+      const followers = followersRes.count || 0;
+      const following = followingRes.count || 0;
+
+      // slides: own + contributed
+      const { data: ownSlides } = await sb.from("slides").select("*").eq("owner_id", prof.id).order("created_at", { ascending: false });
+      let contribSlides = [];
+      if (!isSelf) {
+        const { data: items } = await sb.from("slide_items").select("slide_id").eq("added_by", prof.id);
+        const ids = [...new Set((items || []).map(function (i) { return i.slide_id; }))].filter(function (id) {
+          return !(ownSlides || []).some(function (s) { return s.id === id; });
+        });
+        if (ids.length) {
+          const { data: cs } = await sb.from("slides").select("*").in("id", ids);
+          contribSlides = cs || [];
+        }
+      }
+
+      let following2 = false;
+      if (!isSelf) {
+        const { data: f } = await sb.from("follows").select("follower_id")
+          .eq("follower_id", me.id).eq("following_id", prof.id).maybeSingle();
+        following2 = !!f;
+      }
+
+      let html = '<div class="profile-head">' +
+        '<div class="profile-top">' + avatarHTML(prof.avatar_url, prof.username, 76) +
+          '<div class="profile-id"><h2>' + esc(prof.username) + '</h2><div class="dname">' + esc(prof.display_name || "") + "</div></div>" +
+        "</div>" +
+        '<div class="counts"><div><b>' + posts.length + "</b><span>posts</span></div>" +
+        "<div><b>" + followers + "</b><span>followers</span></div>" +
+        "<div><b>" + following + "</b><span>following</span></div></div>" +
+        (prof.bio ? '<div class="bio">' + esc(prof.bio) + "</div>" : "") +
+        '<div class="profile-actions">';
+      if (isSelf) {
+        html += '<a class="btn btn-outline" href="compose.html">＋ New post</a>';
+        html += '<button class="btn btn-sm" id="newSlideBtn" style="flex:0 0 auto">＋ New slide</button>';
+      } else {
+        html += '<button class="btn ' + (following2 ? "btn-outline" : "") + '" id="followBtn">' + (following2 ? "Following" : "Follow") + "</button>";
+        html += '<button class="btn btn-outline" id="msgBtn">Message</button>';
+      }
+      html += "</div></div>";
+
+      html += '<div class="tabs">' +
+        '<button data-tab="posts"' + (activeTab === "posts" ? ' class="active"' : "") + ">Posts</button>" +
+        '<button data-tab="slides"' + (activeTab === "slides" ? ' class="active"' : "") + ">Slides</button>" +
+        '<button data-tab="reels"' + (activeTab === "reels" ? ' class="active"' : "") + ">Reels</button></div>" +
+        '<div id="tabBody"></div>';
+      main.innerHTML = html;
+
+      main.querySelectorAll(".tabs button").forEach(function (b) {
+        b.addEventListener("click", function () { activeTab = b.dataset.tab; render(); });
+      });
+
+      const body = document.getElementById("tabBody");
+      if (activeTab === "posts") {
+        body.innerHTML = posts.length
+          ? '<div class="grid3">' + posts.map(function (p) { return tileHTML(p, null); }).join("") + "</div>"
+          : '<div class="empty"><div class="big">📷</div>No posts yet.</div>';
+      } else if (activeTab === "reels") {
+        body.innerHTML = reels.length
+          ? '<div class="grid3">' + reels.map(function (p) { return tileHTML(p, "🎬"); }).join("") + "</div>"
+          : '<div class="empty"><div class="big">🎬</div>No reels yet.</div>';
+      } else {
+        let sh = "";
+        (ownSlides || []).forEach(function (s) {
+          sh += '<a class="row-item card slide-card" href="slide.html?id=' + s.id + '">' +
+            '<div class="grow"><div class="title">📑 ' + esc(s.title) + '</div><div class="sub">by ' + esc(prof.username) + " · " + timeAgo(s.created_at) + "</div></div></a>";
+        });
+        contribSlides.forEach(function (s) {
+          sh += '<a class="row-item card slide-card" href="slide.html?id=' + s.id + '">' +
+            '<div class="grow"><div class="title">📑 ' + esc(s.title) + '</div><div class="sub">contributed · ' + timeAgo(s.created_at) + "</div></div></a>";
+        });
+        body.innerHTML = sh || '<div class="empty"><div class="big">📑</div>No slides yet.' + (isSelf ? "<br>Tap <b>＋ New slide</b> to start one." : "") + "</div>";
+      }
+
+      const fb = document.getElementById("followBtn");
+      if (fb) fb.addEventListener("click", async function () {
+        fb.disabled = true;
+        try {
+          if (following2) {
+            await sb.from("follows").delete().eq("follower_id", me.id).eq("following_id", prof.id);
+          } else {
+            await sb.from("follows").insert({ follower_id: me.id, following_id: prof.id });
+          }
+          render();
+        } catch (e) { alert("Could not update follow: " + (e.message || e)); fb.disabled = false; }
+      });
+      const mb = document.getElementById("msgBtn");
+      if (mb) mb.addEventListener("click", async function () {
+        mb.disabled = true;
+        try { await openConversation(me.id, prof.id); }
+        catch (e) { alert("Could not open chat: " + (e.message || e)); mb.disabled = false; }
+      });
+      const nsb = document.getElementById("newSlideBtn");
+      if (nsb) nsb.addEventListener("click", async function () {
+        const title = prompt("Slide title:");
+        if (!title || !title.trim()) return;
+        try {
+          const { data, error } = await sb.from("slides").insert({ owner_id: me.id, title: title.trim() }).select().single();
+          if (error) throw error;
+          window.location.href = "slide.html?id=" + data.id;
+        } catch (e) { alert("Could not create slide: " + (e.message || e)); }
+      });
+    } catch (e) { main.innerHTML = errHTML(e); }
+  }
+
+  (async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+    topBar({});
+    bottomNav(uname ? null : "profile");
+    try {
+      me = await currentProfile();
+      if (!me) { main.innerHTML = errHTML("No profile found."); return; }
+      if (uname) {
+        const { data, error } = await sb.from("profiles").select("*").eq("username", uname).single();
+        if (error) throw new Error("User not found.");
+        prof = data;
+      } else {
+        prof = me;
+      }
+      isSelf = prof.id === me.id;
+      document.title = "Swan — @" + prof.username;
+      render();
+    } catch (e) { main.innerHTML = errHTML(e); }
+  })();
+})();
+</script>
+</body>
+</html>

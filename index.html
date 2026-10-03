@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Swan — Home</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</head>
+<body>
+<main class="wrap" id="main"></main>
+<script>
+(function () {
+  const main = document.getElementById("main");
+  let me = null;
+  const SVG_LIKE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21.2l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>';
+  const SVG_COMMENT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>';
+
+  function mediaHTML(url) {
+    if (isVideo(url)) return '<video src="' + esc(url) + '" controls playsinline preload="metadata"></video>';
+    return '<img src="' + esc(url) + '" alt="post" loading="lazy">';
+  }
+
+  function cardHTML(post, author, likeCount, liked, comments, commentAuthors) {
+    const pid = post.id;
+    let media = "";
+    (post.media_urls || []).forEach(function (u) { media += mediaHTML(u); });
+    let cmts = "";
+    comments.forEach(function (c) {
+      const a = commentAuthors[c.author_id] || { username: "?" };
+      cmts += '<div><b>' + esc(a.username) + "</b> " + esc(c.body) + "</div>";
+    });
+    return '<article class="card" id="post-' + pid + '">' +
+      '<div class="card-head">' +
+        '<a href="profile.html?u=' + esc(author.username) + '">' + avatarHTML(author.avatar_url, author.username, 38) + "</a>" +
+        '<div class="who"><a href="profile.html?u=' + esc(author.username) + '">' + esc(author.username) + '</a><div class="when">' + timeAgo(post.created_at) + (post.type === "reel" ? " · reel" : "") + "</div></div>" +
+      "</div>" +
+      '<div class="card-media">' + media + "</div>" +
+      musicBarHTML(post) +
+      '<div class="card-actions">' +
+        '<button class="action-btn like-btn' + (liked ? " liked" : "") + '" data-liked="' + (liked ? "1" : "0") + '" data-post="' + pid + '">' + SVG_LIKE + "</button>" +
+        '<button class="action-btn" data-focus="cinput-' + pid + '">' + SVG_COMMENT + "</button>" +
+      "</div>" +
+      '<div class="likes-line" id="likes-' + pid + '">' + likeCount + " like" + (likeCount === 1 ? "" : "s") + "</div>" +
+      (post.caption ? '<div class="caption-line"><b>' + esc(author.username) + "</b>" + esc(post.caption) + "</div>" : "") +
+      '<div class="comments-preview" id="cprev-' + pid + '">' + cmts + "</div>" +
+      '<div class="add-comment"><input id="cinput-' + pid + '" placeholder="Add a comment..." maxlength="300">' +
+      '<button class="mini-btn" data-post="' + pid + '">Post</button></div>' +
+    "</article>";
+  }
+
+  async function toggleLike(btn) {
+    const pid = btn.dataset.post;
+    const liked = btn.dataset.liked === "1";
+    btn.disabled = true;
+    try {
+      if (liked) {
+        const { error } = await sb.from("likes").delete().eq("user_id", me.id).eq("post_id", pid);
+        if (error) throw error;
+        btn.dataset.liked = "0"; btn.classList.remove("liked");
+      } else {
+        const { error } = await sb.from("likes").insert({ user_id: me.id, post_id: pid });
+        if (error) throw error;
+        btn.dataset.liked = "1"; btn.classList.add("liked");
+      }
+      const { count } = await sb.from("likes").select("*", { count: "exact", head: true }).eq("post_id", pid);
+      const el = document.getElementById("likes-" + pid);
+      if (el) el.textContent = (count || 0) + " like" + (count === 1 ? "" : "s");
+    } catch (e) { alert("Could not update like: " + (e.message || e)); }
+    btn.disabled = false;
+  }
+
+  async function addComment(pid) {
+    const input = document.getElementById("cinput-" + pid);
+    const body = input.value.trim();
+    if (!body) return;
+    try {
+      const { error } = await sb.from("comments").insert({ post_id: pid, author_id: me.id, body: body });
+      if (error) throw error;
+      input.value = "";
+      const prev = document.getElementById("cprev-" + pid);
+      const div = document.createElement("div");
+      div.innerHTML = "<b>" + esc(me.username) + "</b> " + esc(body);
+      prev.appendChild(div);
+    } catch (e) { alert("Could not post comment: " + (e.message || e)); }
+  }
+
+  /* ---------- stories ---------- */
+  let storyGroups = [];
+  function openStory(ai, si) {
+    const g = storyGroups[ai];
+    const s = g.items[si];
+    const ov = document.createElement("div");
+    ov.className = "story-viewer";
+    const media = isVideo(s.media_urls[0])
+      ? '<video src="' + esc(s.media_urls[0]) + '" autoplay playsinline></video>'
+      : '<img src="' + esc(s.media_urls[0]) + '" alt="story">';
+    ov.innerHTML =
+      '<div class="sv-head">' + avatarHTML(g.author.avatar_url, g.author.username, 34) +
+      '<div class="who">' + esc(g.author.username) + ' <span style="color:#a89c9c;font-weight:400">· ' + timeAgo(s.created_at) + "</span></div>" +
+      '<button class="sv-close" aria-label="Close">×</button></div>' +
+      '<div class="sv-media">' + media + "</div>" +
+      '<div class="sv-zones"><button data-go="-1" aria-label="Previous"></button><button data-go="1" aria-label="Next"></button></div>';
+    document.body.appendChild(ov);
+    document.body.style.overflow = "hidden";
+    let timer = null;
+    function close() { clearTimeout(timer); ov.remove(); document.body.style.overflow = ""; }
+    function nav(d) {
+      clearTimeout(timer);
+      let nai = ai, nsi = si + d;
+      if (nsi < 0) { nai = ai - 1; nsi = nai >= 0 ? storyGroups[nai].items.length - 1 : 0; }
+      if (nai >= 0 && nsi >= storyGroups[nai].items.length) { nai = ai + 1; nsi = 0; }
+      if (nai < 0 || nai >= storyGroups.length) { close(); return; }
+      ov.remove(); document.body.style.overflow = "";
+      openStory(nai, nsi);
+    }
+    ov.querySelector(".sv-close").onclick = close;
+    ov.querySelectorAll(".sv-zones button").forEach(function (b) {
+      b.onclick = function () { nav(parseInt(b.dataset.go, 10)); };
+    });
+    const vid = ov.querySelector("video");
+    if (vid) { vid.onended = function () { nav(1); }; }
+    else { timer = setTimeout(function () { nav(1); }, 6000); }
+  }
+
+  async function loadStories() {
+    try {
+      const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+      const { data, error } = await sb.from("posts").select("*")
+        .eq("type", "story").gte("created_at", since).order("created_at", { ascending: true }).limit(60);
+      if (error) throw error;
+      if (!data || !data.length) return "";
+      const authorIds = [...new Set(data.map(function (s) { return s.author_id; }))];
+      const { data: authors } = await sb.from("profiles").select("id,username,avatar_url").in("id", authorIds);
+      const amap = {};
+      (authors || []).forEach(function (a) { amap[a.id] = a; });
+      storyGroups = [];
+      const byAuthor = {};
+      data.forEach(function (s) {
+        if (!byAuthor[s.author_id]) { byAuthor[s.author_id] = []; }
+        byAuthor[s.author_id].push(s);
+      });
+      let html = '<div class="stories-row">';
+      let i = 0;
+      Object.keys(byAuthor).forEach(function (aid) {
+        const author = amap[aid] || { username: "?", avatar_url: null };
+        storyGroups.push({ author: author, items: byAuthor[aid] });
+        const idx = i++;
+        html += '<button class="story-item" data-ai="' + idx + '">' +
+          '<span class="story-ring">' + avatarHTML(author.avatar_url, author.username, 58) + "</span>" +
+          '<span class="story-name">' + esc(author.username) + "</span></button>";
+      });
+      html += "</div>";
+      return html;
+    } catch (e) { return ""; }
+  }
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+    topBar({});
+    bottomNav("home");
+    try {
+      me = await currentProfile();
+      if (!me) { main.innerHTML = errHTML("No profile found. Please sign up again."); return; }
+
+      const storiesHTML = await loadStories();
+
+      const { data: f } = await sb.from("follows").select("following_id").eq("follower_id", me.id);
+      const ids = [me.id].concat((f || []).map(function (x) { return x.following_id; }));
+      const { data: posts, error: pErr } = await sb.from("posts").select("*")
+        .in("author_id", ids).in("type", ["post", "reel"])
+        .order("created_at", { ascending: false }).limit(40);
+      if (pErr) throw pErr;
+
+      let feedHTML = "";
+      if (!posts || !posts.length) {
+        feedHTML = '<div class="empty"><div class="big">🪿</div>Your feed is quiet.<br>Follow people or <a href="compose.html" style="color:#a6262e;font-weight:700">share your first post</a>.</div>';
+      } else {
+        const postIds = posts.map(function (p) { return p.id; });
+        const authorIds = [...new Set(posts.map(function (p) { return p.author_id; }))];
+        const { data: authors } = await sb.from("profiles").select("id,username,avatar_url").in("id", authorIds);
+        const amap = {};
+        (authors || []).forEach(function (a) { amap[a.id] = a; });
+
+        const { data: likes } = await sb.from("likes").select("post_id").in("post_id", postIds);
+        const likeCount = {};
+        (likes || []).forEach(function (l) { likeCount[l.post_id] = (likeCount[l.post_id] || 0) + 1; });
+        const { data: myLikes } = await sb.from("likes").select("post_id").eq("user_id", me.id).in("post_id", postIds);
+        const likedSet = {};
+        (myLikes || []).forEach(function (l) { likedSet[l.post_id] = 1; });
+
+        const { data: comments } = await sb.from("comments")
+          .select("id,post_id,body,created_at,author_id").in("post_id", postIds)
+          .order("created_at", { ascending: false }).limit(120);
+        const commentsByPost = {};
+        (comments || []).forEach(function (c) {
+          if (!commentsByPost[c.post_id]) commentsByPost[c.post_id] = [];
+          if (commentsByPost[c.post_id].length < 2) commentsByPost[c.post_id].push(c);
+        });
+        const commentAuthorIds = [...new Set((comments || []).map(function (c) { return c.author_id; }))];
+        let camap = {};
+        if (commentAuthorIds.length) {
+          const { data: ca } = await sb.from("profiles").select("id,username").in("id", commentAuthorIds);
+          (ca || []).forEach(function (a) { camap[a.id] = a; });
+        }
+
+        posts.forEach(function (p) {
+          const author = amap[p.author_id] || { username: "?", avatar_url: null };
+          const cmts = (commentsByPost[p.id] || []).slice().reverse();
+          feedHTML += cardHTML(p, author, likeCount[p.id] || 0, !!likedSet[p.id], cmts, camap);
+        });
+      }
+
+      main.innerHTML = storiesHTML + feedHTML;
+
+      main.querySelectorAll(".like-btn").forEach(function (b) {
+        b.addEventListener("click", function () { toggleLike(b); });
+      });
+      main.querySelectorAll(".action-btn[data-focus]").forEach(function (b) {
+        b.addEventListener("click", function () {
+          const inp = document.getElementById(b.dataset.focus);
+          if (inp) inp.focus();
+        });
+      });
+      main.querySelectorAll(".mini-btn[data-post]").forEach(function (b) {
+        b.addEventListener("click", function () { addComment(b.dataset.post); });
+      });
+      main.querySelectorAll(".add-comment input").forEach(function (inp) {
+        inp.addEventListener("keydown", function (ev) {
+          if (ev.key === "Enter") {
+            const m = inp.id.match(/^cinput-(.+)$/);
+            if (m) addComment(m[1]);
+          }
+        });
+      });
+      main.querySelectorAll(".story-item").forEach(function (b) {
+        b.addEventListener("click", function () { openStory(parseInt(b.dataset.ai, 10), 0); });
+      });
+    } catch (e) {
+      main.innerHTML = errHTML(e);
+    }
+  }
+  init();
+})();
+</script>
+</body>
+</html>

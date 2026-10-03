@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Swan — Reels</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<style>
+  body { padding-bottom: 76px; }
+  .reels-top { position: fixed; top: 0; left: 0; right: 0; z-index: 70; padding: 12px 16px;
+    font-size: 20px; font-weight: 800; background: linear-gradient(rgba(0,0,0,0.6), transparent); pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="reels-top">Reels</div>
+<main class="reels-feed" id="feed"></main>
+<script>
+(function () {
+  const feed = document.getElementById("feed");
+  let me = null;
+  const SVG_LIKE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21.2l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>';
+
+  async function toggleLike(pid, btn) {
+    const liked = btn.dataset.liked === "1";
+    try {
+      if (liked) {
+        const { error } = await sb.from("likes").delete().eq("user_id", me.id).eq("post_id", pid);
+        if (error) throw error;
+        btn.dataset.liked = "0"; btn.classList.remove("liked");
+      } else {
+        const { error } = await sb.from("likes").insert({ user_id: me.id, post_id: pid });
+        if (error) throw error;
+        btn.dataset.liked = "1"; btn.classList.add("liked");
+      }
+      const { count } = await sb.from("likes").select("*", { count: "exact", head: true }).eq("post_id", pid);
+      btn.querySelector(".lc").textContent = count || 0;
+    } catch (e) { /* silent-ish */ }
+  }
+
+  async function init() {
+    const user = await requireAuth();
+    if (!user) return;
+    bottomNav("reels");
+    try {
+      me = await currentProfile();
+      const { data: reels, error } = await sb.from("posts").select("*")
+        .eq("type", "reel").order("created_at", { ascending: false }).limit(30);
+      if (error) throw error;
+      if (!reels || !reels.length) {
+        feed.innerHTML = '<div class="empty" style="height:80dvh;display:flex;flex-direction:column;justify-content:center"><div class="big">🎬</div>No reels yet.<br><a href="compose.html" style="color:#a6262e;font-weight:700">Make the first one</a>.</div>';
+        return;
+      }
+      const reelIds = reels.map(function (r) { return r.id; });
+      const authorIds = [...new Set(reels.map(function (r) { return r.author_id; }))];
+      const { data: authors } = await sb.from("profiles").select("id,username,avatar_url").in("id", authorIds);
+      const amap = {};
+      (authors || []).forEach(function (a) { amap[a.id] = a; });
+      const { data: likes } = await sb.from("likes").select("post_id").in("post_id", reelIds);
+      const likeCount = {};
+      (likes || []).forEach(function (l) { likeCount[l.post_id] = (likeCount[l.post_id] || 0) + 1; });
+      const { data: myLikes } = await sb.from("likes").select("post_id").eq("user_id", me.id).in("post_id", reelIds);
+      const likedSet = {};
+      (myLikes || []).forEach(function (l) { likedSet[l.post_id] = 1; });
+
+      let html = "";
+      reels.forEach(function (r) {
+        const a = amap[r.author_id] || { username: "?", avatar_url: null };
+        const url = (r.media_urls && r.media_urls[0]) || "";
+        const src = r.music_source || "audius";
+        const via = src === "apple" ? "Apple Music" : src === "spotify" ? "Spotify" : "Audius";
+        const mlabel = "♪ " + esc(r.music_title) + " — " + esc(r.music_artist || "Unknown artist") + " · via " + via + " ♪&nbsp;&nbsp;";
+        let music = "";
+        if (r.music_title) {
+          if ((src === "spotify" || src === "apple") && r.music_external_url) {
+            music = '<div class="marquee"><a href="' + esc(r.music_external_url) + '" target="_blank" rel="noopener" style="color:#fff;pointer-events:auto"><span>' + mlabel + "</span></a></div>";
+          } else {
+            music = '<div class="marquee"><span>' + mlabel + "</span></div>";
+          }
+        }
+        html += '<section class="reel" data-pid="' + r.id + '">' +
+          '<video src="' + esc(url) + '" muted loop playsinline preload="metadata"></video>' +
+          '<div class="mute-tag">🔇</div>' +
+          '<div class="reel-overlay">' +
+            '<div class="reel-side">' +
+              '<button class="reel-like' + (likedSet[r.id] ? " liked" : "") + '" data-liked="' + (likedSet[r.id] ? "1" : "0") + '" data-pid="' + r.id + '">' + SVG_LIKE + '<span class="lc">' + (likeCount[r.id] || 0) + "</span></button>" +
+            "</div>" +
+            '<div class="reel-meta">' +
+              '<div class="rauthor"><a href="profile.html?u=' + esc(a.username) + '" style="color:#fff">@' + esc(a.username) + "</a></div>" +
+              (r.caption ? '<div class="rcap">' + esc(r.caption) + "</div>" : "") +
+              music +
+            "</div>" +
+          "</div></section>";
+      });
+      feed.innerHTML = html;
+
+      // play/pause on visibility
+      const obs = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          const v = en.target.querySelector("video");
+          if (!v) return;
+          if (en.intersectionRatio >= 0.6) { v.play().catch(function () {}); }
+          else { v.pause(); }
+        });
+      }, { root: feed, threshold: [0.6] });
+      feed.querySelectorAll(".reel").forEach(function (sec) { obs.observe(sec); });
+
+      // tap video: toggle mute; like buttons
+      feed.querySelectorAll(".reel video").forEach(function (v) {
+        v.addEventListener("click", function () {
+          v.muted = !v.muted;
+          const tag = v.closest(".reel").querySelector(".mute-tag");
+          if (tag) tag.textContent = v.muted ? "🔇" : "🔊";
+        });
+      });
+      feed.querySelectorAll(".reel-like").forEach(function (b) {
+        b.addEventListener("click", function (ev) { ev.stopPropagation(); toggleLike(b.dataset.pid, b); });
+      });
+    } catch (e) {
+      feed.innerHTML = errHTML(e);
+    }
+  }
+  init();
+})();
+</script>
+</body>
+</html>
