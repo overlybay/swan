@@ -391,9 +391,15 @@ async function openConversation(myId, otherId) {
     if (shared && shared.length) convId = shared[0].conversation_id;
   }
   if (!convId) {
-    const { data: conv, error: cErr } = await sb.from("conversations").insert({}).select().single();
+    // Make the id up front so we don't need insert().select() —
+    // the select-back would trip the read policy before members are added.
+    convId = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID()
+      : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+          const r = Math.random() * 16 | 0, v = c === "x" ? r : (r & 0x3 | 0x8);
+          return v.toString(16);
+        });
+    const { error: cErr } = await sb.from("conversations").insert({ id: convId });
     if (cErr) throw cErr;
-    convId = conv.id;
     const { error: m1 } = await sb.from("conversation_members").insert({ conversation_id: convId, user_id: myId });
     if (m1) throw m1;
     const { error: m2 } = await sb.from("conversation_members").insert({ conversation_id: convId, user_id: otherId });
