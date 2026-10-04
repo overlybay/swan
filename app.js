@@ -111,15 +111,60 @@ function toggleMusic(url, btn, start, dur) {
   playAudiusBar(btn);
 }
 
-/* ---- YouTube inline players ---- */
-function clearYouTube() {
-  document.querySelectorAll(".yt-slot").forEach(function (s) { s.innerHTML = ""; });
-  document.querySelectorAll(".sp-slot").forEach(function (s) { s.innerHTML = ""; });
+/* ---- YouTube IFrame Player API (programmatic play / pause / resume) ---- */
+let ytApiReady = false;
+const ytReadyQueue = [];
+let activeYTPlayer = null;
+let activeYTBox = null;
+
+function loadYouTubeAPI() {
+  if (window.YT && window.YT.Player) { ytApiReady = true; return; }
+  if (document.querySelector("script[data-yt-api]")) return;
+  window.onYouTubeIframeAPIReady = function () {
+    ytApiReady = true;
+    ytReadyQueue.splice(0).forEach(function (fn) { try { fn(); } catch (e) {} });
+  };
+  const s = document.createElement("script");
+  s.src = "https://www.youtube.com/iframe_api";
+  s.setAttribute("data-yt-api", "1");
+  document.head.appendChild(s);
+}
+function whenYTReady(fn) {
+  if (window.YT && window.YT.Player) { ytApiReady = true; fn(); return; }
+  ytReadyQueue.push(fn);
+  loadYouTubeAPI();
+}
+function ytPause() {
+  if (activeYTPlayer) { try { activeYTPlayer.pauseVideo(); } catch (e) {} }
+}
+function ytStop() {
+  if (activeYTPlayer) { try { activeYTPlayer.destroy(); } catch (e) {} activeYTPlayer = null; }
+  if (activeYTBox) {
+    if (activeYTBox.classList.contains("cs-yt") && activeYTBox.dataset.orig) {
+      activeYTBox.innerHTML = activeYTBox.dataset.orig;
+    } else {
+      activeYTBox.innerHTML = "";
+    }
+    activeYTBox = null;
+  }
   document.querySelectorAll(".yt-play").forEach(function (x) { x.style.display = ""; });
-  document.querySelectorAll(".sp-play").forEach(function (x) { x.style.display = ""; });
-  document.querySelectorAll(".cs-yt iframe, .cs-sp iframe").forEach(function (f) {
-    const el = f.closest(".cs-yt, .cs-sp");
-    if (el && el.dataset.orig) el.innerHTML = el.dataset.orig;
+  document.querySelectorAll(".musicbar.ext.playing").forEach(function (b) { b.classList.remove("playing"); });
+}
+function mountYTPlayer(box, vid) {
+  box.innerHTML = "";
+  const mount = document.createElement("div");
+  box.appendChild(mount);
+  whenYTReady(function () {
+    if (!document.body.contains(mount)) return; // user moved on already
+    try {
+      activeYTPlayer = new YT.Player(mount, {
+        width: "100%",
+        videoId: vid,
+        playerVars: { autoplay: 1, rel: 0 },
+        events: { onReady: function (e) { try { e.target.playVideo(); } catch (err) {} } },
+      });
+      activeYTBox = box;
+    } catch (e) {}
   });
 }
 function playYouTubeBar(bar) {
@@ -130,24 +175,29 @@ function playYouTubeBar(bar) {
     if (btn && btn.dataset.url) window.open(btn.dataset.url, "_blank");
     return false;
   }
-  stopAllPlayback();
-  slot.innerHTML = '<iframe src="https://www.youtube.com/embed/' + btn.dataset.vid +
-    '?autoplay=1&rel=0" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>';
+  stopFeedAudio();
+  ytStop();
   btn.style.display = "none";
   bar.classList.add("playing");
+  mountYTPlayer(slot, btn.dataset.vid);
   return true;
 }
 function playYouTubeCard(el) {
-  if (!el.dataset.vid || el.querySelector("iframe")) return false;
+  if (!el.dataset.vid || (activeYTBox === el && activeYTPlayer)) return false;
   if (!el.dataset.orig) el.dataset.orig = el.innerHTML;
-  stopAllPlayback();
-  el.innerHTML = '<iframe src="https://www.youtube.com/embed/' + el.dataset.vid +
-    '?autoplay=1&rel=0" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowfullscreen style="width:100%;aspect-ratio:16/10;border:none;display:block"></iframe>';
+  stopFeedAudio();
+  ytStop();
+  mountYTPlayer(el, el.dataset.vid);
   return true;
 }
 function stopAllPlayback() {
   stopFeedAudio();
-  clearYouTube();
+  ytPause();
+  // twitch embeds can't pause cleanly — tear them down so streams stop off-screen
+  document.querySelectorAll(".cs-tw iframe").forEach(function (f) {
+    const el = f.closest(".cs-tw");
+    if (el && el.dataset.orig) el.innerHTML = el.dataset.orig;
+  });
 }
 
 /* ---- scroll autoplay: a post's music starts as it scrolls into view ---- */
@@ -178,13 +228,24 @@ function pickActive() {
 function startCardAudio(card) {
   const abar = card.querySelector('.musicbar[data-url]');
   if (abar) { playAudiusBar(abar); return; }
-  const ybtn = card.querySelector(".yt-play");
-  if (ybtn && ybtn.dataset.vid && ybtn.style.display !== "none") {
-    playYouTubeBar(ybtn.closest(".musicbar"));
+  const bar = card.querySelector(".musicbar.ext");
+  const ybtn = bar ? bar.querySelector(".yt-play") : null;
+  if (ybtn && ybtn.dataset.vid) {
+    const slot = bar.querySelector(".yt-slot");
+    if (activeYTBox === slot && activeYTPlayer) {
+      try { activeYTPlayer.playVideo(); } catch (e) {}
+      bar.classList.add("playing");
+      ybtn.style.display = "none";
+    } else {
+      playYouTubeBar(bar);
+    }
     return;
   }
   const yc = card.querySelector(".cs-yt[data-vid]");
-  if (yc && !yc.querySelector("iframe")) playYouTubeCard(yc);
+  if (yc) {
+    if (activeYTBox === yc && activeYTPlayer) { try { activeYTPlayer.playVideo(); } catch (e) {} }
+    else playYouTubeCard(yc);
+  }
 }
 function initFeedAutoplay(root) {
   if (autoplayObs) { autoplayObs.disconnect(); autoplayObs = null; }
@@ -299,6 +360,20 @@ function spId(url) {
   if (!url) return null;
   const m = String(url).match(/open\.spotify\.com\/track\/([A-Za-z0-9]{22})|spotify:track:([A-Za-z0-9]{22})/);
   return m ? (m[1] || m[2]) : null;
+}
+function twitchInfo(url) {
+  const u = String(url || "");
+  let m = u.match(/clips\.twitch\.tv\/([A-Za-z0-9_-]+)/);
+  if (m) return { clip: m[1], label: "Twitch clip" };
+  m = u.match(/twitch\.tv\/([A-Za-z0-9_]+)\/clip\/([A-Za-z0-9_-]+)/);
+  if (m) return { clip: m[2], channel: m[1], label: "Twitch clip" };
+  m = u.match(/twitch\.tv\/videos\/(\d+)/);
+  if (m) return { video: m[1], label: "Twitch video" };
+  m = u.match(/twitch\.tv\/([A-Za-z0-9_]{4,25})(?:[/?#]|$)/);
+  if (m && !/^(videos|clip|directory|downloads|jobs|turbo|prime|bits|subs|inventory|wallet|settings|search)$/i.test(m[1])) {
+    return { channel: m[1], label: m[1] + " on Twitch" };
+  }
+  return null;
 }
 function musicBarHTML(post) {
   const src = post.music_source || "audius";
@@ -452,6 +527,14 @@ function slideInnerHTML(it) {
       '<span class="bigplay" aria-hidden="true">▶</span>' +
       '<div class="cs-meta"><b>' + esc(it.title || "Spotify track") + "</b><span>" + esc(it.subtitle || "Spotify") + "</span></div></div>";
   }
+  if (it.kind === "twitch") {
+    const info = twitchInfo(it.url) || {};
+    return '<div class="cs-tw" data-ch="' + esc(info.channel || "") + '" data-video="' + esc(info.video || "") +
+      '" data-clip="' + esc(info.clip || "") + '" data-url="' + esc(it.url) + '">' +
+      '<div class="cs-fallback tw">📺</div>' +
+      '<span class="bigplay" aria-hidden="true">▶</span>' +
+      '<div class="cs-meta"><b>' + esc(it.title || info.label || "Twitch") + "</b><span>" + esc(it.subtitle || "Twitch") + "</span></div></div>";
+  }
   if (it.kind === "web") {
     const dom = domainOf(it.url);
     const fav = dom ? "https://www.google.com/s2/favicons?domain=" + encodeURIComponent(dom) + "&sz=128" : "";
@@ -601,5 +684,21 @@ document.addEventListener("click", function (e) {
     } else if (cs.dataset.url) {
       window.open(cs.dataset.url, "_blank");
     }
+    return;
+  }
+  const ct = e.target.closest(".cs-tw");
+  if (ct) {
+    const parent = location.hostname;
+    let src = "";
+    if (ct.dataset.clip) src = "https://clips.twitch.tv/embed?clip=" + encodeURIComponent(ct.dataset.clip) + "&parent=" + parent;
+    else if (ct.dataset.video) src = "https://player.twitch.tv/?video=v" + encodeURIComponent(ct.dataset.video) + "&parent=" + parent;
+    else if (ct.dataset.ch) src = "https://player.twitch.tv/?channel=" + encodeURIComponent(ct.dataset.ch) + "&parent=" + parent;
+    if (!src) {
+      if (ct.dataset.url) window.open(ct.dataset.url, "_blank");
+      return;
+    }
+    if (!ct.dataset.orig) ct.dataset.orig = ct.innerHTML;
+    stopAllPlayback();
+    ct.innerHTML = '<iframe src="' + src + '" allowfullscreen style="width:100%;aspect-ratio:16/10;border:none;display:block"></iframe>';
   }
 });

@@ -72,11 +72,12 @@
 
   <div class="pad">
     <div class="ccard">
-      <div class="chead">Link cards <span class="csub">web · YouTube · Spotify — swipeable</span></div>
+      <div class="chead">Link cards <span class="csub">web · YouTube · Twitch · Spotify — swipeable</span></div>
       <div id="cardPrev" class="thumb-row"></div>
       <div class="btn-row" style="margin-bottom:10px">
         <button class="btn btn-outline btn-sm" id="addWebBtn" type="button">🌐 Web link</button>
         <button class="btn btn-outline btn-sm" id="addYtBtn" type="button">▶ YouTube</button>
+        <button class="btn btn-outline btn-sm" id="addTwBtn" type="button">📺 Twitch</button>
         <button class="btn btn-outline btn-sm" id="addSpBtn" type="button">♪ Spotify</button>
       </div>
       <div id="linkForm" class="hidden">
@@ -261,7 +262,7 @@
       const d = document.createElement("div");
       d.className = "cardchip";
       d.innerHTML =
-        (c.thumb ? '<img src="' + esc(c.thumb) + '" alt="">' : '<span class="cc-ico">' + (c.kind === "youtube" ? "▶" : c.kind === "spotify" ? "♪" : "🌐") + "</span>") +
+        (c.thumb ? '<img src="' + esc(c.thumb) + '" alt="">' : '<span class="cc-ico">' + (c.kind === "youtube" ? "▶" : c.kind === "spotify" ? "♪" : c.kind === "twitch" ? "📺" : "🌐") + "</span>") +
         '<span class="cc-t">' + esc(c.title || c.url) + '</span><button type="button" data-i="' + i + '" aria-label="Remove card">✕</button>';
       el.appendChild(d);
     });
@@ -276,12 +277,13 @@
     document.getElementById("lfTitle").value = "";
     document.getElementById("lfErr").innerHTML = "";
     document.getElementById("lfUrlLbl").textContent =
-      kind === "youtube" ? "YouTube video link" : kind === "spotify" ? "Spotify track link" : "Web link URL";
+      kind === "youtube" ? "YouTube video link" : kind === "spotify" ? "Spotify track link" : kind === "twitch" ? "Twitch link (channel, video, or clip)" : "Web link URL";
     document.getElementById("linkForm").classList.remove("hidden");
     document.getElementById("lfUrl").focus();
   }
   document.getElementById("addWebBtn").addEventListener("click", function () { openLinkForm("web"); });
   document.getElementById("addYtBtn").addEventListener("click", function () { openLinkForm("youtube"); });
+  document.getElementById("addTwBtn").addEventListener("click", function () { openLinkForm("twitch"); });
   document.getElementById("addSpBtn").addEventListener("click", function () { openLinkForm("spotify"); });
   document.getElementById("lfCancel").addEventListener("click", function () {
     document.getElementById("linkForm").classList.add("hidden");
@@ -321,6 +323,11 @@
         }
         if (!card.title) card.title = "Spotify track";
         if (!card.subtitle) card.subtitle = "Spotify";
+      } else if (linkKind === "twitch") {
+        const info = twitchInfo(url);
+        if (!info) throw new Error("That isn't a Twitch link. Paste a twitch.tv channel, video, or clip link.");
+        if (!card.title) card.title = info.label;
+        card.subtitle = "Twitch";
       } else {
         let dom = url;
         try { dom = new URL(url).hostname.replace(/^www\./, ""); } catch (e) { /* keep raw */ }

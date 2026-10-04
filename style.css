@@ -342,7 +342,7 @@ textarea { resize: vertical; min-height: 90px; }
 .musicbar.ext { flex-wrap: wrap; }
 .yt-slot, .sp-slot { flex-basis: 100%; }
 .yt-slot:empty, .sp-slot:empty { display: none; }
-.yt-slot iframe { width: 100%; height: 210px; border: none; border-radius: 12px; margin-top: 8px; background: #000; }
+.yt-slot iframe { width: 100%; aspect-ratio: 16/10; height: auto; border: none; border-radius: 12px; margin-top: 8px; background: #000; display: block; }
 .sp-slot iframe { width: 100%; height: 80px; border: none; border-radius: 12px; margin-top: 8px; }
 
 /* ---- swipeable post carousel ---- */
@@ -391,3 +391,8 @@ textarea { resize: vertical; min-height: 90px; }
 /* ---- sign out ---- */
 .signout-btn { width: 100%; background: none; border: 1px solid #7f1d1d; color: #f87171;
   border-radius: 12px; padding: 13px; font-size: 15px; font-weight: 700; }
+
+/* ---- YouTube Player API + Twitch ---- */
+.cs-yt, .cs-tw { position: relative; cursor: pointer; }
+.cs-yt iframe, .cs-tw iframe { width: 100%; aspect-ratio: 16/10; height: auto; border: none; display: block; }
+.cs-fallback.tw { background: linear-gradient(135deg, #5b16c7 0%, #2b0a5e 100%); color: #fff; font-size: 44px; }
