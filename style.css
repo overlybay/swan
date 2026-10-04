@@ -440,3 +440,17 @@ textarea { resize: vertical; min-height: 90px; }
 }
 .g-pick { width: 100%; background: none; border: none; text-align: left; cursor: pointer; font: inherit; color: inherit; }
 #gResults { max-height: 240px; overflow-y: auto; }
+
+/* ---- human verification challenge ---- */
+.cap-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.cap-tile {
+  font-size: 34px;
+  padding: 14px 0;
+  background: #2a1216;
+  border: 2px solid #3d151a;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.cap-tile.sel { border-color: #a6262e; background: #4a1a20; }
+.verify-nudge { text-align: center; margin: 10px 0 2px; font-size: 13px; opacity: .85; }
+.verify-nudge a { color: #e8b4b8; font-weight: 700; }

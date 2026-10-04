@@ -70,7 +70,11 @@
           html += '<button class="btn btn-outline" id="verifyBtn">' + (prof.verified ? "Unverify" : "✓ Verify human") + "</button>";
         }
       }
-      html += "</div></div>";
+      html += "</div>";
+      if (isSelf && me && !me.verified) {
+        html += '<div class="verify-nudge">Want the <span class="vbadge">✓</span> badge? <a href="settings.html">Verify you\'re human</a></div>';
+      }
+      html += "</div>";
 
       html += '<div class="tabs">' +
         '<button data-tab="posts"' + (activeTab === "posts" ? ' class="active"' : "") + ">Posts</button>" +

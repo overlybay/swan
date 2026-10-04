@@ -42,11 +42,21 @@
       '<button class="btn-share" id="saveBtn">Save</button>' +
       '<div id="serr" style="margin-top:10px"></div>' +
       "</div>" +
+      '<div class="pad"><div class="ccard">' +
+      '<div class="chead">Human verification</div>' +
+      (me.verified
+        ? '<div class="empty">✓ You\'re verified as human. Your <span class="vbadge">✓</span> badge shows on your posts, comments, and profile.</div>'
+        : '<p style="margin:0 0 12px">Pass a quick challenge to earn your <span class="vbadge">✓</span> badge.</p>' +
+          '<button class="btn-share" id="capBtn">Verify I\'m human</button>') +
+      "</div></div>" +
+      '<div id="capModal"></div>' +
       '<div class="pad"><button class="mini-btn" id="exportBtn" style="width:100%;padding:12px">⬇ Download my data</button></div>' +
       '<div id="expmsg" class="pad" style="padding-top:0"></div>' +
       '<div class="pad"><button class="signout-btn" id="signOutBtn">Sign out</button></div></div>';
 
     document.getElementById("exportBtn").addEventListener("click", exportData);
+    const capBtn = document.getElementById("capBtn");
+    if (capBtn) capBtn.addEventListener("click", openCaptcha);
 
     document.getElementById("signOutBtn").addEventListener("click", async function () {
       if (!confirm("Sign out of Swan?")) return;
@@ -147,6 +157,81 @@
     }
     btn.disabled = false;
     btn.textContent = "⬇ Download my data";
+  }
+
+  /* ---- human verification challenge (2 rounds of tap-the-target) ---- */
+  const CAP_EMOJIS = ["🦢","🐬","🐝","🦋","🍕","🚗","⚽","🌙","⭐","🐱","🐶","🦁","🐸","🍎","🚀","⛵","🎈","🎮","📚","⏰","💡","🔑","🎧","📷","🌊","🔥","❄️","🍩"];
+  let capRound = 0;
+  let capTargets = [];
+
+  function openCaptcha() {
+    capRound = 0;
+    renderCapRound();
+  }
+
+  function shuffled(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  function renderCapRound() {
+    const host = document.getElementById("capModal");
+    const target = CAP_EMOJIS[Math.floor(Math.random() * CAP_EMOJIS.length)];
+    const tiles = shuffled([target, target, target].concat(
+      shuffled(CAP_EMOJIS.filter(function (e) { return e !== target; })).slice(0, 6)
+    ));
+    capTargets = [];
+    tiles.forEach(function (e, i) { if (e === target) capTargets.push(i); });
+    host.innerHTML =
+      '<div class="modal-ov" id="capOv"><div class="modal-card">' +
+      '<div class="chead">Verify you\'re human <span class="csub">round ' + (capRound + 1) + " of 2</span></div>" +
+      '<p style="margin:0 0 12px">Tap all <b style="font-size:20px">' + target + "</b> tiles, then submit.</p>" +
+      '<div class="cap-grid">' + tiles.map(function (e, i) {
+        return '<button type="button" class="cap-tile" data-i="' + i + '">' + e + "</button>";
+      }).join("") + "</div>" +
+      '<div id="capErr" style="min-height:22px;margin:8px 0"></div>' +
+      '<div class="btn-row"><button class="btn btn-outline btn-sm" id="capCancel" type="button">Cancel</button>' +
+      '<button class="btn btn-sm" id="capSubmit" type="button">Submit</button></div>' +
+      "</div></div>";
+    host.querySelectorAll(".cap-tile").forEach(function (t) {
+      t.addEventListener("click", function () { t.classList.toggle("sel"); });
+    });
+    document.getElementById("capCancel").addEventListener("click", function () { host.innerHTML = ""; });
+    document.getElementById("capOv").addEventListener("click", function (e) { if (e.target.id === "capOv") host.innerHTML = ""; });
+    document.getElementById("capSubmit").addEventListener("click", capCheck);
+  }
+
+  function capCheck() {
+    const host = document.getElementById("capModal");
+    const sel = [];
+    host.querySelectorAll(".cap-tile.sel").forEach(function (t) { sel.push(parseInt(t.getAttribute("data-i"), 10)); });
+    sel.sort(function (a, b) { return a - b; });
+    const ok = sel.length === capTargets.length && sel.every(function (v, i) { return v === capTargets[i]; });
+    if (!ok) {
+      document.getElementById("capErr").innerHTML = errHTML("Not quite — try again.");
+      setTimeout(renderCapRound, 900);
+      return;
+    }
+    capRound++;
+    if (capRound < 2) { renderCapRound(); return; }
+    capFinish(host);
+  }
+
+  async function capFinish(host) {
+    try {
+      const { error } = await sb.from("profiles").update({ verified: true }).eq("id", me.id);
+      if (error) throw error;
+      me.verified = true;
+      host.innerHTML = "";
+      render();
+    } catch (e) {
+      const eb = document.getElementById("capErr");
+      if (eb) eb.innerHTML = errHTML(e);
+    }
   }
 
   init();
