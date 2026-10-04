@@ -54,7 +54,7 @@
 
       let html = '<div class="profile-head">' +
         '<div class="profile-top">' + avatarHTML(prof.avatar_url, prof.username, 76) +
-          '<div class="profile-id"><h2>' + esc(prof.username) + '</h2><div class="dname">' + esc(prof.display_name || "") + "</div></div>" +
+          '<div class="profile-id"><h2>' + esc(prof.username) + vBadge(prof) + '</h2><div class="dname">' + esc(prof.display_name || "") + "</div></div>" +
         "</div>" +
         '<div class="counts"><div><b>' + posts.length + "</b><span>posts</span></div>" +
         "<div><b>" + (followers + following) + "</b><span>flock</span></div></div>" +
@@ -66,6 +66,9 @@
       } else {
         html += '<button class="btn ' + (following2 ? "btn-outline" : "") + '" id="followBtn">' + (following2 ? "✓ Flock" : "＋ Flock") + "</button>";
         html += '<button class="btn btn-outline" id="msgBtn">Message</button>';
+        if (me && me.is_admin) {
+          html += '<button class="btn btn-outline" id="verifyBtn">' + (prof.verified ? "Unverify" : "✓ Verify human") + "</button>";
+        }
       }
       html += "</div></div>";
 
@@ -132,6 +135,16 @@
         mb.disabled = true;
         try { await openConversation(me.id, prof.id); }
         catch (e) { alert("Could not open chat: " + (e.message || e)); mb.disabled = false; }
+      });
+      const vb = document.getElementById("verifyBtn");
+      if (vb) vb.addEventListener("click", async function () {
+        vb.disabled = true;
+        try {
+          const { error } = await sb.from("profiles").update({ verified: !prof.verified }).eq("id", prof.id);
+          if (error) throw error;
+          prof.verified = !prof.verified;
+          render();
+        } catch (e) { alert("Could not update verification: " + (e.message || e)); vb.disabled = false; }
       });
     } catch (e) { main.innerHTML = errHTML(e); }
   }

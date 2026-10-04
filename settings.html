@@ -42,7 +42,11 @@
       '<button class="btn-share" id="saveBtn">Save</button>' +
       '<div id="serr" style="margin-top:10px"></div>' +
       "</div>" +
+      '<div class="pad"><button class="mini-btn" id="exportBtn" style="width:100%;padding:12px">⬇ Download my data</button></div>' +
+      '<div id="expmsg" class="pad" style="padding-top:0"></div>' +
       '<div class="pad"><button class="signout-btn" id="signOutBtn">Sign out</button></div></div>';
+
+    document.getElementById("exportBtn").addEventListener("click", exportData);
 
     document.getElementById("signOutBtn").addEventListener("click", async function () {
       if (!confirm("Sign out of Swan?")) return;
@@ -99,6 +103,50 @@
       btn.disabled = false;
       btn.textContent = "Save";
     }
+  }
+
+  async function exportData() {
+    const msg = document.getElementById("expmsg");
+    const btn = document.getElementById("exportBtn");
+    btn.disabled = true;
+    btn.textContent = "Gathering...";
+    try {
+      const uid = me.id;
+      const out = { exported_at: new Date().toISOString(), app: "swan" };
+      const { data: prof } = await sb.from("profiles").select("*").eq("id", uid).single();
+      out.profile = prof;
+      const { data: posts } = await sb.from("posts").select("*").eq("author_id", uid).order("created_at", { ascending: false });
+      out.posts = posts || [];
+      const { data: comments } = await sb.from("comments").select("*").eq("author_id", uid).order("created_at", { ascending: false }).limit(1000);
+      out.comments = comments || [];
+      const { data: likes } = await sb.from("likes").select("post_id,created_at").eq("user_id", uid).order("created_at", { ascending: false }).limit(1000);
+      out.likes_given = likes || [];
+      const { data: following } = await sb.from("follows").select("followed_id,created_at").eq("follower_id", uid);
+      out.following = following || [];
+      const { data: followers } = await sb.from("follows").select("follower_id,created_at").eq("followed_id", uid);
+      out.followers = followers || [];
+      const { data: mems } = await sb.from("conversation_members").select("conversation_id").eq("user_id", uid);
+      const cids = (mems || []).map(function (m) { return m.conversation_id; });
+      if (cids.length) {
+        const { data: msgs } = await sb.from("messages").select("*").in("conversation_id", cids).eq("sender_id", uid)
+          .order("created_at", { ascending: false }).limit(2000);
+        out.messages_sent = msgs || [];
+      } else {
+        out.messages_sent = [];
+      }
+      const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "swan-data-" + (me.username || "export") + ".json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      msg.innerHTML = '<div class="empty">Your data downloaded as a JSON file.</div>';
+    } catch (e) {
+      msg.innerHTML = errHTML(e);
+    }
+    btn.disabled = false;
+    btn.textContent = "⬇ Download my data";
   }
 
   init();

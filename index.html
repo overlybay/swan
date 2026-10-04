@@ -61,7 +61,7 @@
       if (error) throw error;
       if (!data || !data.length) return "";
       const authorIds = [...new Set(data.map(function (s) { return s.author_id; }))];
-      const { data: authors } = await sb.from("profiles").select("id,username,avatar_url").in("id", authorIds);
+      const { data: authors } = await sb.from("profiles").select("id,username,avatar_url,verified").in("id", authorIds);
       const amap = {};
       (authors || []).forEach(function (a) { amap[a.id] = a; });
       storyGroups = [];
@@ -113,7 +113,7 @@
       } else {
         const postIds = posts.map(function (p) { return p.id; });
         const authorIds = [...new Set(posts.map(function (p) { return p.author_id; }))];
-        const { data: authors } = await sb.from("profiles").select("id,username,avatar_url").in("id", authorIds);
+        const { data: authors } = await sb.from("profiles").select("id,username,avatar_url,verified").in("id", authorIds);
         const amap = {};
         (authors || []).forEach(function (a) { amap[a.id] = a; });
 
@@ -135,7 +135,7 @@
         const commentAuthorIds = [...new Set((comments || []).map(function (c) { return c.author_id; }))];
         let camap = {};
         if (commentAuthorIds.length) {
-          const { data: ca } = await sb.from("profiles").select("id,username").in("id", commentAuthorIds);
+          const { data: ca } = await sb.from("profiles").select("id,username,verified").in("id", commentAuthorIds);
           (ca || []).forEach(function (a) { camap[a.id] = a; });
         }
 

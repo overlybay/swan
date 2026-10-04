@@ -67,6 +67,11 @@ function errHTML(e) {
   return '<div class="error-box">Something went wrong: ' + esc(msg) + "</div>";
 }
 
+/* ---- verified-human badge ---- */
+function vBadge(p) {
+  return (p && p.verified) ? ' <span class="vbadge" title="Verified human">✓</span>' : "";
+}
+
 /* ---- shared music player (one stream at a time) ---- */
 let feedAudio = null;
 let feedAudioBar = null;
@@ -483,6 +488,25 @@ async function openConversation(myId, otherId) {
   window.location.href = "messages.html?c=" + convId;
 }
 
+/* ---- Group DMs: create a conversation with 2+ other members, then open it ---- */
+async function openGroupConversation(myId, otherIds, name) {
+  const uniq = [...new Set((otherIds || []).filter(function (id) { return id && id !== myId; }))];
+  if (!uniq.length) throw new Error("Pick at least one person for the group.");
+  const convId = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID()
+    : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+        const r = Math.random() * 16 | 0, v = c === "x" ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+  const { error: cErr } = await sb.from("conversations").insert({ id: convId, name: name || null });
+  if (cErr) throw cErr;
+  const rows = [myId].concat(uniq).map(function (uid) {
+    return { conversation_id: convId, user_id: uid };
+  });
+  const { error: mErr } = await sb.from("conversation_members").insert(rows);
+  if (mErr) throw mErr;
+  window.location.href = "messages.html?c=" + convId;
+}
+
 /* ---- upload a file to the media bucket, return public URL ---- */
 async function uploadMedia(userId, file) {
   const safe = file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
@@ -573,12 +597,12 @@ function cardHTML(post, author, likeCount, liked, comments, commentAuthors) {
   let cmts = "";
   comments.forEach(function (c) {
     const a = commentAuthors[c.author_id] || { username: "?" };
-    cmts += "<div><b>" + esc(a.username) + "</b> " + esc(c.body) + "</div>";
+    cmts += "<div><b>" + esc(a.username) + "</b>" + vBadge(a) + " " + esc(c.body) + "</div>";
   });
   return '<article class="card" id="post-' + pid + '">' +
     '<div class="card-head">' +
       '<a href="profile.html?u=' + esc(author.username) + '">' + avatarHTML(author.avatar_url, author.username, 38) + "</a>" +
-      '<div class="who"><a href="profile.html?u=' + esc(author.username) + '">' + esc(author.username) + '</a><div class="when">' + timeAgo(post.created_at) + (post.type === "reel" ? " · reel" : "") + "</div></div>" +
+      '<div class="who"><a href="profile.html?u=' + esc(author.username) + '">' + esc(author.username) + "</a>" + vBadge(author) + '<div class="when">' + timeAgo(post.created_at) + (post.type === "reel" ? " · reel" : "") + "</div></div>" +
       (isMine ? '<button class="icon-btn post-menu-btn" data-post="' + pid + '" aria-label="Post options" style="margin-left:auto">···</button>' : "") +
     "</div>" +
     '<div class="card-media">' + slidesHTML(post) + "</div>" +
@@ -588,7 +612,7 @@ function cardHTML(post, author, likeCount, liked, comments, commentAuthors) {
       '<button class="action-btn" data-focus="cinput-' + pid + '">' + SVG_COMMENT + "</button>" +
     "</div>" +
     '<div class="likes-line" id="likes-' + pid + '">' + likeCount + " like" + (likeCount === 1 ? "" : "s") + "</div>" +
-    (post.caption ? '<div class="caption-line"><b>' + esc(author.username) + "</b>" + esc(post.caption) + "</div>" : "") +
+    (post.caption ? '<div class="caption-line"><b>' + esc(author.username) + "</b>" + vBadge(author) + " " + esc(post.caption) + "</div>" : "") +
     '<div class="comments-preview" id="cprev-' + pid + '">' + cmts + "</div>" +
     '<div class="add-comment"><input id="cinput-' + pid + '" placeholder="Add a comment..." maxlength="300">' +
     '<button class="mini-btn" data-post="' + pid + '">Post</button></div>' +

@@ -30,22 +30,30 @@
         .select("conversation_id").eq("user_id", me.id);
       if (error) throw error;
       const ids = (memberships || []).map(function (m) { return m.conversation_id; });
+      let html = '<div class="inbox-head"><div class="section-title" style="margin:0">Messages</div>' +
+        '<button class="mini-btn" id="newGroupBtn" type="button">＋ New group</button></div>' +
+        '<div id="groupModal"></div>';
       if (!ids.length) {
-        main.innerHTML = '<div class="section-title">Messages</div><div class="empty"><div class="big">💬</div>No conversations yet.<br>Visit someone\'s profile and tap <b>Message</b>.</div>';
+        main.innerHTML = html + '<div class="empty"><div class="big">💬</div>No conversations yet.<br>Visit someone\'s profile and tap <b>Message</b>, or start a group above.</div>';
+        wireGroupBtn();
         return;
       }
-      // other members per conversation
+      // all members per conversation
       const { data: members } = await sb.from("conversation_members").select("conversation_id,user_id").in("conversation_id", ids);
-      const otherByConv = {};
+      const othersByConv = {};
       (members || []).forEach(function (m) {
-        if (m.user_id !== me.id) otherByConv[m.conversation_id] = m.user_id;
+        if (m.user_id === me.id) return;
+        (othersByConv[m.conversation_id] = othersByConv[m.conversation_id] || []).push(m.user_id);
       });
-      const otherIds = [...new Set(Object.values(otherByConv))];
+      const otherIds = [...new Set([].concat.apply([], Object.values(othersByConv)))];
       let pmap = {};
       if (otherIds.length) {
-        const { data: profs } = await sb.from("profiles").select("id,username,display_name,avatar_url").in("id", otherIds);
+        const { data: profs } = await sb.from("profiles").select("id,username,display_name,avatar_url,verified").in("id", otherIds);
         (profs || []).forEach(function (p) { pmap[p.id] = p; });
       }
+      const { data: convs } = await sb.from("conversations").select("id,name").in("id", ids);
+      const nameByConv = {};
+      (convs || []).forEach(function (c) { nameByConv[c.id] = c.name; });
       const { data: lastMsgs } = await sb.from("messages").select("conversation_id,body,created_at")
         .in("conversation_id", ids).order("created_at", { ascending: false }).limit(ids.length * 5);
       const lastByConv = {};
@@ -53,18 +61,129 @@
         if (!lastByConv[m.conversation_id]) lastByConv[m.conversation_id] = m;
       });
 
-      let html = '<div class="section-title">Messages</div>';
       ids.forEach(function (cid) {
-        const other = pmap[otherByConv[cid]];
-        if (!other) return;
+        const others = (othersByConv[cid] || []).map(function (oid) { return pmap[oid]; }).filter(Boolean);
+        const cname = nameByConv[cid];
+        let title;
+        if (cname) title = cname;
+        else if (others.length > 1) title = others.slice(0, 3).map(function (o) { return o.display_name || o.username; }).join(", ") + (others.length > 3 ? " +" + (others.length - 3) : "");
+        else if (others.length === 1) title = others[0].display_name || others[0].username;
+        else title = "Group";
         const last = lastByConv[cid];
-        html += '<a class="row-item" href="messages.html?c=' + cid + '">' +
-          avatarHTML(other.avatar_url, other.username, 48) +
-          '<div class="grow"><div class="title">' + esc(other.display_name || other.username) + '</div>' +
+        const av = others[0]
+          ? avatarHTML(others[0].avatar_url, others[0].username, 48)
+          : '<span class="avatar-fallback" style="width:48px;height:48px;font-size:20px">👥</span>';
+        html += '<a class="row-item" href="messages.html?c=' + cid + '">' + av +
+          '<div class="grow"><div class="title">' + esc(title) + (others.length === 1 ? vBadge(others[0]) : "") + "</div>" +
           '<div class="sub">' + (last ? esc(last.body) + " · " + timeAgo(last.created_at) : "Say hi 👋") + "</div></div></a>";
       });
       main.innerHTML = html;
+      wireGroupBtn();
     } catch (e) { main.innerHTML = errHTML(e); }
+  }
+
+  /* ---- group creation modal ---- */
+  let gSel = [];
+  let gMap = {};
+
+  function wireGroupBtn() {
+    const b = document.getElementById("newGroupBtn");
+    if (b) b.addEventListener("click", openGroupModal);
+  }
+
+  function openGroupModal() {
+    gSel = [];
+    gMap = {};
+    const host = document.getElementById("groupModal");
+    host.innerHTML =
+      '<div class="modal-ov" id="gOv"><div class="modal-card">' +
+      '<div class="chead">New group</div>' +
+      '<div class="field"><label>Group name (optional)</label><input id="gName" maxlength="40" placeholder="e.g. Weekend crew" autocomplete="off"></div>' +
+      '<div class="field"><label>Add people</label><input id="gSearch" maxlength="40" placeholder="Search people..." autocomplete="off"></div>' +
+      '<div id="gChips" class="chip-row"></div>' +
+      '<div id="gResults"></div>' +
+      '<div class="btn-row" style="margin-top:12px"><button class="btn btn-outline btn-sm" id="gCancel" type="button">Cancel</button>' +
+      '<button class="btn btn-sm" id="gCreate" type="button">Create group</button></div>' +
+      '<div id="gErr" style="margin-top:8px"></div>' +
+      "</div></div>";
+    document.getElementById("gCancel").addEventListener("click", function () { host.innerHTML = ""; });
+    document.getElementById("gOv").addEventListener("click", function (e) { if (e.target.id === "gOv") host.innerHTML = ""; });
+    let t = null;
+    document.getElementById("gSearch").addEventListener("input", function (e) {
+      clearTimeout(t);
+      const v = e.target.value.trim();
+      t = setTimeout(function () { gSearch(v); }, 350);
+    });
+    document.getElementById("gCreate").addEventListener("click", gCreate);
+  }
+
+  async function gSearch(term) {
+    const box = document.getElementById("gResults");
+    if (!box) return;
+    if (!term) { box.innerHTML = ""; return; }
+    try {
+      let data = null;
+      try {
+        const r = await sb.rpc("search_users", { q: term });
+        if (!r.error) data = r.data;
+      } catch (e) { /* fallback below */ }
+      if (!data) {
+        const r2 = await sb.from("profiles").select("id,username,display_name,avatar_url,verified")
+          .ilike("username", "%" + term.replace(/[%_]/g, "") + "%").limit(15);
+        if (r2.error) throw r2.error;
+        data = r2.data;
+      }
+      let html = "";
+      (data || []).forEach(function (p) {
+        if (p.id === me.id || gSel.indexOf(p.id) !== -1) return;
+        gMap[p.id] = p;
+        html += '<button class="row-item g-pick" data-id="' + p.id + '" type="button">' +
+          avatarHTML(p.avatar_url, p.username, 40) +
+          '<div class="grow"><div class="title">' + esc(p.username) + vBadge(p) + '</div><div class="sub">' + esc(p.display_name || "") + "</div></div></button>";
+      });
+      box.innerHTML = html || '<div class="empty">No matches.</div>';
+      box.querySelectorAll(".g-pick").forEach(function (b) {
+        b.addEventListener("click", function () {
+          const id = b.getAttribute("data-id");
+          if (gSel.indexOf(id) === -1) gSel.push(id);
+          renderChips();
+          b.remove();
+        });
+      });
+    } catch (e) { box.innerHTML = errHTML(e); }
+  }
+
+  function renderChips() {
+    const box = document.getElementById("gChips");
+    if (!box) return;
+    box.innerHTML = gSel.map(function (id) {
+      const p = gMap[id] || { username: "?" };
+      return '<span class="chip">' + esc(p.username) + ' <b data-un="' + id + '" style="cursor:pointer">×</b></span>';
+    }).join("");
+    box.querySelectorAll("[data-un]").forEach(function (x) {
+      x.addEventListener("click", function () {
+        gSel = gSel.filter(function (id) { return id !== x.getAttribute("data-un"); });
+        renderChips();
+      });
+    });
+  }
+
+  async function gCreate() {
+    const errBox = document.getElementById("gErr");
+    errBox.innerHTML = "";
+    if (!gSel.length) { errBox.innerHTML = errHTML("Add at least one person."); return; }
+    const nameEl = document.getElementById("gName");
+    const name = nameEl ? nameEl.value.trim() : "";
+    const btn = document.getElementById("gCreate");
+    btn.disabled = true;
+    btn.textContent = "Creating...";
+    try {
+      await openGroupConversation(me.id, gSel, name || null);
+    } catch (e) {
+      errBox.innerHTML = errHTML(e);
+      btn.disabled = false;
+      btn.textContent = "Create group";
+    }
   }
 
   async function showThread() {
@@ -75,17 +194,33 @@
       if (memErr) throw memErr;
       const memberIds = (mem || []).map(function (m) { return m.user_id; });
       if (!memberIds.includes(me.id)) { main.innerHTML = errHTML("You are not a member of this conversation."); return; }
-      const otherId = memberIds.find(function (id) { return id !== me.id; });
-      let other = { username: "?", display_name: "?", avatar_url: null };
-      if (otherId) {
-        const { data: op } = await sb.from("profiles").select("username,display_name,avatar_url").eq("id", otherId).single();
-        if (op) other = op;
+      const otherIds = memberIds.filter(function (id) { return id !== me.id; });
+      const { data: conv } = await sb.from("conversations").select("name").eq("id", convId).single();
+      let others = [];
+      if (otherIds.length) {
+        const { data: ops } = await sb.from("profiles").select("username,display_name,avatar_url,verified").in("id", otherIds);
+        others = ops || [];
+      }
+      const isGroup = otherIds.length > 1;
+      let headTitle, headAv, headLink;
+      if (conv && conv.name) {
+        headTitle = esc(conv.name);
+        headAv = '<span class="avatar-fallback" style="width:36px;height:36px;font-size:16px">👥</span>';
+        headLink = headTitle;
+      } else if (isGroup) {
+        headTitle = others.map(function (o) { return o.display_name || o.username; }).join(", ");
+        headAv = '<span class="avatar-fallback" style="width:36px;height:36px;font-size:16px">👥</span>';
+        headLink = esc(headTitle);
+      } else {
+        const other = others[0] || { username: "?", display_name: "?", avatar_url: null };
+        headAv = avatarHTML(other.avatar_url, other.username, 36);
+        headLink = '<a href="profile.html?u=' + esc(other.username) + '">' + esc(other.display_name || other.username) + "</a>" + vBadge(other);
       }
 
       main.innerHTML =
         '<div class="thread-head"><a class="icon-btn" href="messages.html" aria-label="Back">‹</a>' +
-        avatarHTML(other.avatar_url, other.username, 36) +
-        '<div class="grow"><a href="profile.html?u=' + esc(other.username) + '">' + esc(other.display_name || other.username) + "</a></div></div>" +
+        headAv +
+        '<div class="grow">' + headLink + (isGroup ? '<div class="sub" style="font-size:12px;opacity:.7">' + otherIds.length + " people</div>" : "") + "</div></div>" +
         '<div class="thread"><div class="msgs" id="msgs"></div>' +
         '<div class="sendbar"><input id="sendInput" placeholder="Message..." maxlength="1000" autocomplete="off">' +
         '<button class="btn" id="sendBtn">Send</button></div></div>';

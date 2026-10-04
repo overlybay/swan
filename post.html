@@ -33,14 +33,14 @@
       if (error || !post) throw new Error("Post not found.");
       if (post.archived && post.author_id !== me.id) throw new Error("Post not found.");
 
-      const { data: author } = await sb.from("profiles").select("id,username,avatar_url").eq("id", post.author_id).single();
+      const { data: author } = await sb.from("profiles").select("id,username,avatar_url,verified").eq("id", post.author_id).single();
       const { count } = await sb.from("likes").select("*", { count: "exact", head: true }).eq("post_id", pid);
       const { data: myLike } = await sb.from("likes").select("post_id").eq("user_id", me.id).eq("post_id", pid).maybeSingle();
       const { data: comments } = await sb.from("comments").select("*").eq("post_id", pid).order("created_at", { ascending: true }).limit(100);
       const cids = [...new Set((comments || []).map(function (c) { return c.author_id; }))];
       let camap = {};
       if (cids.length) {
-        const { data: ca } = await sb.from("profiles").select("id,username").in("id", cids);
+        const { data: ca } = await sb.from("profiles").select("id,username,verified").in("id", cids);
         (ca || []).forEach(function (a) { camap[a.id] = a; });
       }
 
